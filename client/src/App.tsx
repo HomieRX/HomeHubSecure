@@ -7,6 +7,10 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PlatformHeader } from "@/components/PlatformHeader";
 import ServiceRequests from "@/pages/ServiceRequests";
+import Profile from "@/pages/Profile";
+import HomeDetails from "@/pages/HomeDetails";
+import Calendar from "@/pages/Calendar";
+import Messages from "@/pages/Messages";
 import NotFound from "@/pages/not-found";
 
 function DashboardPage() {
@@ -83,6 +87,10 @@ function Router() {
       <Route path="/contractors" component={ContractorsPage}/>
       <Route path="/savvy-saver" component={SavvySaverPage}/>
       <Route path="/checkit" component={CheckITPage}/>
+      <Route path="/profile" component={Profile}/>
+      <Route path="/profile/home-details" component={HomeDetails}/>
+      <Route path="/calendar" component={Calendar}/>
+      <Route path="/messages" component={Messages}/>
       <Route component={NotFound} />
     </Switch>
   );
