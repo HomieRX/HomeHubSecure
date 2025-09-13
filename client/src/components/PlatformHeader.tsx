@@ -26,7 +26,8 @@ import {
   Home,
   CreditCard,
   Shield,
-  Edit3
+  Edit3,
+  FileText
 } from 'lucide-react';
 import { Link } from 'wouter';
 
@@ -360,6 +361,12 @@ export function PlatformHeader() {
               <Link href="/profile/billing">
                 <CreditCard className="mr-2 h-4 w-4" />
                 <span data-testid="link-billing">Billing</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/invoices">
+                <FileText className="mr-2 h-4 w-4" />
+                <span data-testid="link-invoices">Invoices</span>
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
