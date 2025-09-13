@@ -1,0 +1,271 @@
+HomeHub – Secure Client & Community Portal
+
+The digital HQ for homeowners, contractors, and local merchants. Every feature ties back to member value, transparency, and workflow efficiency. The structure balances community interaction with practical home services, layered into membership tiers that gate features and pricing.
+
+Membership Tiers
+
+All tiers are defined in a Plans table with configurable keys: plan_id, fixit_rate, preventit_minutes, sessions_per_year, bundle_builder_enabled, credits_per_month, booking_cap, rollover_rules.
+
+HomeHUB (Free/Community)
+
+Access to community feed, groups, discussions.
+
+Nextdoor-style neighborhood updates.
+
+Upgrade paths to paid tiers surfaced in UI.
+
+HomePRO
+
+PreventiT!: 10 items (~60 min).
+
+FixiT!: $70/hr diagnostics.
+
+Access to HandleiT!, CheckiT!, LoyalizeiT!, HomeVitals.
+
+Concurrency rule: 2 active bookings max.
+
+HomeHERO
+
+PreventiT!: 20 items (~90 min).
+
+FixiT!: $60/hr.
+
+Everything in HomePRO.
+
+HomeGURU
+
+PreventiT!: 30 items (~120 min).
+
+FixiT!: $55/hr.
+
+Bundle Builder enabled for personalized packages.
+
+Positioned as “all-inclusive.”
+
+FixiT! – Dedicated Home Manager
+
+Each member is assigned one Home Manager per ZIP.
+
+Scope of Work
+
+Diagnostics for appliances & basic systems: fridge, washer, dryer, water heater, electrical, plumbing, irrigation.
+
+Triages & delegates complex tasks to float techs or contractors.
+
+Appointments
+
+Standard slot = 1 hour diagnostic.
+
+Follow-ups scheduled separately.
+
+Limit: 2 concurrent bookings per member.
+
+Cancel/reschedule up to 48h prior.
+
+System behavior: generates WorkOrders with states REQUESTED → SCHEDULED → DIAGNOSTIC → DELEGATED|COMPLETE → CLOSED.
+
+Capacity Target
+
+160–170 hours/month per manager.
+
+If >90% utilized → auto-throttle new bookings or reroute to float pool.
+
+PreventiT! – Bi-Annual Preventive Maintenance Bundles
+
+“Maintenance subscription.”
+
+Core Features
+
+Seasonal bundles: Phase 1 (Feb–Mar), Phase 2 (Jul–Aug).
+
+Tier determines minutes allocated (60/90/120).
+
+GURU tier allows full Bundle Builder; others use fixed templates.
+
+Tasks logged as PreventitPlan entities; each item has minutes_cost.
+
+Technical Model
+
+Custom Post Type: Maintenance Bundle.
+
+Data Store: bundle items tied to member.
+
+Scheduling engine enforces seasonal windows.
+
+Completion requires photo checklist + Home Manager verification.
+
+State machine: PLANNED → SCHEDULED → IN_PROGRESS → VERIFIED → POSTED_TO_HOMEVITALS → CLOSED.
+
+HandleiT! – Contractor Network
+
+Private bidding system for large jobs.
+
+Workflow
+
+Member posts EstimateRequest (structured form + photos).
+
+Contractors invited by specialty/license taxonomy.
+
+Estimates are private: only member sees all.
+
+Member selects; payment authorized into escrow.
+
+Job milestone triggers fund release.
+
+Technical Model
+
+Entities: EstimateRequest, Estimate, Invoice.
+
+Escrow integration (authorize → capture → release).
+
+Messaging thread per request; contractors never see each other.
+
+Audit logs for all actions.
+
+CheckiT! – Home Health Checkup
+
+Lightweight inspection for ongoing monitoring.
+
+Core Elements
+
+Covers exterior, mechanical, electrical, safety.
+
+Scoring rubric (1–10 per category, versioned).
+
+Generates HomeVitals entry.
+
+States: SCHEDULED → IN_PROGRESS → VERIFIED → CLOSED.
+
+LoyalizeiT! – Rewards Program
+
+Points ledger for all tiers.
+
+Earning Events
+
+FixiT! paid hours.
+
+PreventiT! completion.
+
+HandleiT! selection + invoice.
+
+Community actions (referrals, reviews; rate limited).
+
+Savvy Saver redemptions.
+
+Spending Rules
+
+Points → cash-equivalent discounts on FixiT!.
+
+PreventiT! add-on hours.
+
+Merchant deals, raffles.
+
+Ledger append-only; balance never negative.
+
+Savvy Saver – Local Business Offers
+
+Directory + redemption system.
+
+Structure
+
+Offer CPT linked to Merchant profile.
+
+Distribution: QR codes, wallet passes, single-use URLs.
+
+States: DRAFT → APPROVED → PUBLISHED → REDEEMED → EXPIRED.
+
+Tracking
+
+Redemptions log member, offer, method, merchant_ref.
+
+UTM data from QR scans.
+
+Merchant dashboard: redemptions & ROI.
+
+HomeVitals – On-Demand Reports
+
+Centralized “medical chart” for the home.
+
+Data Sources
+
+PreventiT! completions.
+
+FixiT! work orders.
+
+CheckiT! scores.
+
+HandleiT! invoices.
+
+Output
+
+Digital dashboard + downloadable PDF.
+
+Graphs of maintenance trends.
+
+Flags upcoming PreventiT!/FixiT!.
+
+Versioned; checksum stored; sharable to insurers/realtors.
+
+CommuniT! – Social Core
+
+The engagement layer.
+
+Features
+
+Newsfeed: jobs, milestones, discussions.
+
+Groups: neighborhood, tier, interests.
+
+Direct messaging (member ↔ contractor allowed).
+
+Gamification: badges, levels, Homehubopoly tie-ins.
+
+Event hooks: every service action can post to feed.
+
+Safeguards
+
+Moderation queue, banned words, rate limits.
+
+Members tied to real accounts (less toxicity than Nextdoor).
+
+Admin/Manager Layer
+
+Operational controls.
+
+Roles
+
+Home Managers: oversee ZIP workload, verify PreventiT!.
+
+Contractor Moderators: vet licenses, manage disputes.
+
+Merchant Admins: approve offers, track ROI.
+
+Super Admin: billing, escalation, system config.
+
+Tools
+
+Capacity dashboard: utilization per manager (target 160–170h).
+
+QA queue for PreventiT! photo verifications.
+
+Dispute console for HandleiT! jobs.
+
+Offer approvals & abuse reports.
+
+Audit logs: immutable, every state change tracked.
+
+Cross-Cutting Developer Notes
+
+Scheduling: Slot engine with waitlist + blackout dates.
+
+Notifications: Push, SMS, Email, In-app; event-driven.
+
+Payments: Escrow for HandleiT!, instant charges for FixiT!/PreventiT!.
+
+Security: JWT + refresh, HMAC on webhooks, file scan + signed URLs.
+
+Mobile-first: push reminders, camera uploads, wallet passes, offline sync.
+
+Testing: capacity simulation per ZIP, golden-file HomeVitals PDFs, E2E happy paths.
+
+KPIs: activation (first FixiT! within 14 days), PreventiT! completion %, manager utilization, merchant ROI.

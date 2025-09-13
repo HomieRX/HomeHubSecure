@@ -1,0 +1,153 @@
+Identity, Roles, Access
+
+Actors: member, home_manager, contractor, merchant_admin, staff_admin, super_admin.
+
+RBAC: server-side checks only; row-level scoping by tenant_id, zip, county_id.
+
+Assignments: each member has a persistent home_manager_id keyed by ZIP.
+
+2) Plans, Quotas, Concurrency
+
+Plans table: plan_id, name, price, fixit_hourly_rate, preventit_minutes_per_session (PRO=60, HERO=90, GURU=120), sessions_per_year=2, bundle_builder_enabled (true only for GURU), fixit_monthly_credits, booking_concurrency_cap=2, rollover_rules.
+
+Enforce max 2 active bookings per member at API level.
+
+Treat PreventiT! allowance as time. If “items” are shown, each item has a canonical minutes_cost.
+
+3) Scheduling Engine
+
+Slot model: id, type(FIXIT|PREVENTIT|CHECKIT), zip, manager_id, start, end, status, capacity=1.
+
+Seasonal windows: PreventiT! allowed only in Feb–Mar and Jul–Aug. Configurable.
+
+Auto-throttle when manager utilization > 90%: offer waitlist or float manager.
+
+Follow-ups created automatically when a diagnostic exceeds 60 min.
+
+4) Canonical Workflows (state machines)
+
+FixiT!: REQUESTED → SCHEDULED → IN_DIAGNOSTIC → DELEGATED|NEEDS_PARTS|COMPLETE → CLOSED.
+
+PreventiT!: PLANNED → SCHEDULED → IN_PROGRESS → VERIFIED_BY_MANAGER → POSTED_TO_VITALS → CLOSED. Photo checklist required before verify.
+
+HandleiT!: INTAKE → INVITED(contractors[]) → ESTIMATES_RECEIVED → MEMBER_SELECTS → FUNDED(escrow) → IN_PROGRESS → COMPLETE → RELEASED → CLOSED.
+
+CheckiT!: SCHEDULED → IN_PROGRESS → VERIFIED → CLOSED.
+
+Offer (Savvy Saver): DRAFT → APPROVED → PUBLISHED → REDEEMED(n) → EXPIRED.
+
+5) Payments
+
+Escrow for HandleiT!: authorize at selection, capture on milestone, release on completion; change orders create delta invoices.
+
+FixiT!/PreventiT!: immediate charge on completion; support points-as-currency at checkout.
+
+Refunds/Disputes: freeze any points earned from refunded transactions.
+
+6) Rewards (LoyalizeiT!)
+
+Ledger: append-only with delta, reason, ref_type/id, balance_after.
+
+Earn: FixiT! paid hours, PreventiT! completion, HandleiT! selection+payment, limited community actions, offer redemptions.
+
+Spend: currency-equivalent discounts, PreventiT! add-on minutes, merchant offers, raffles.
+
+7) Savvy Saver Redemptions
+
+Artifacts: QR codes, one-tap wallet passes, single-use URLs.
+
+Anti-fraud: per-redemption nonce, short TTL, device/IP fingerprinting, velocity limits.
+
+Merchant dashboard: redemptions, revenue, top offers, UTM reporting.
+
+8) HomeVitals
+
+Event-driven composition after every CLOSED work order.
+
+Sections: Summary, Timeline, Scores, Attachments, Recommendations.
+
+Outputs: dashboard + versioned PDF with checksum; shareable link.
+
+9) Messaging & Notifications
+
+Threaded messaging scoped to WorkOrder or EstimateRequest; contractors do not see each other.
+
+Notifications: push/email/SMS/in-app on SLOT_BOOKED, SLOT_CHANGED, ESTIMATE_INVITE, ESTIMATE_SELECTED, JOB_COMPLETE, POINTS_EARNED, OFFER_EXPIRES_SOON.
+
+Quiet hours per user.
+
+10) Admin/Manager Ops
+
+Manager dashboard: today’s schedule, utilization meter (target 160–170 h/month), PreventiT! verification queue, exceptions.
+
+County ops: heatmap by ZIP, predicted workload vs staffed capacity, float-pool routing.
+
+Dispute console for HandleiT!. Offer approvals with abuse reports.
+
+11) Capacity & Policy
+
+Target: 160–170 hours/month per manager.
+
+Coordinator model ready: manager performs diagnostics, delegates execution to techs/contractors; track minutes_actual by assignee.
+
+Utilization table per manager per month; forecasts for PreventiT! windows by ZIP.
+
+12) Security, Compliance, Audit
+
+JWT + refresh tokens; HMAC-signed webhooks; signed URLs for files with AV scan.
+
+AuditLog on every state change: actor, verb, entity, before/after, IP, timestamp.
+
+PII in protected table; export-on-demand for members.
+
+13) Background Jobs
+
+Nightly: capacity rebalance, waitlist promotion, points accrual, invoice retries.
+
+Hourly: reminder dispatch, offer expiry, redemption fraud scan.
+
+On-demand: PDF render, ICS rebuilds, data export.
+
+14) API Routes (minimum)
+
+POST /auth/register, POST /auth/login
+
+GET /plans
+
+GET /me, GET /me/membership, PATCH /me/manager
+
+GET /slots?type=&zip=&from=&to=, POST /bookings, PATCH /bookings/{id}, DELETE /bookings/{id}
+
+POST /workorders, GET /workorders/{id}, PATCH /workorders/{id}
+
+POST /preventit/plans, POST /preventit/schedule, POST /preventit/verify
+
+POST /handleit/requests, POST /handleit/requests/{id}/invite, POST /handleit/requests/{id}/estimates, POST /handleit/estimates/{id}/select
+
+POST /payments/intent, POST /payments/capture, POST /payments/refund
+
+GET /rewards/ledger, POST /rewards/redeem
+
+POST /offers, POST /offers/{id}/publish, POST /offers/{id}/redeem
+
+GET /vitals, POST /vitals/export
+
+GET /admin/capacity, GET /admin/qa/preventit, POST /admin/disputes/{id}/resolve
+
+15) Minimal Schema (tables)
+
+User, Membership, HomeManagerAssignment, WorkOrder, PreventitPlan, PreventitItemTemplate, EstimateRequest, Estimate, Invoice, Offer, Redemption, PointsLedger, VitalsEntry, Notification, AuditLog, Utilization.
+
+16) Acceptance Criteria
+
+PreventiT! bookings are only creatable in configured seasonal windows.
+
+Members cannot hold more than 2 active bookings across all services.
+
+Estimates are private to the member; non-selected contractors cannot view competitors.
+
+HandleiT! payments require escrow before IN_PROGRESS.
+
+Every CLOSED work order creates a HomeVitals entry and appears in the PDF.
+
+Manager utilization visible and accurate to the minute for the current month.
