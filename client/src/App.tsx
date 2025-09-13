@@ -3,164 +3,70 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/AppSidebar";
+import ServiceRequests from "@/pages/ServiceRequests";
 import NotFound from "@/pages/not-found";
-import Header from "@/components/Header";
-import Hero from "@/components/Hero";
-import ServiceCard from "@/components/ServiceCard";
-import MembershipTierCard from "@/components/MembershipTierCard";
-import Footer from "@/components/Footer";
-import ThemeToggle from "@/components/ThemeToggle";
-import { Wrench, Shield, Hammer, CheckCircle } from 'lucide-react';
+
+function DashboardPage() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-foreground mb-4">Dashboard</h1>
+      <p className="text-muted-foreground">Welcome to your HomeHub dashboard.</p>
+    </div>
+  );
+}
 
 function HomePage() {
-  //todo: remove mock functionality when backend is implemented
   return (
-    <div className="min-h-screen bg-background">
-      <div className="flex justify-end p-4">
-        <ThemeToggle />
-      </div>
-      
-      <Header userTier="HomePRO" isAuthenticated={true} />
-      
-      <main>
-        <Hero />
-        
-        {/* Services Section */}
-        <section className="py-16 bg-gray-50 dark:bg-gray-900" data-testid="services-section">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-              <h2 className="text-3xl font-bold text-foreground mb-4">Our Services</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Comprehensive home services designed to keep your property in perfect condition
-              </p>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <ServiceCard
-                title="FixiT!"
-                description="Professional home diagnostics and repairs by certified Home Managers"
-                icon={Wrench}
-                price="$70/hr"
-                features={[
-                  "1-hour diagnostic session", 
-                  "Appliance troubleshooting", 
-                  "Basic system repairs", 
-                  "Follow-up scheduling"
-                ]}
-                status="available"
-              />
-              
-              <ServiceCard
-                title="PreventiT!"
-                description="Bi-annual preventive maintenance to keep your home in top condition"
-                icon={Shield}
-                features={[
-                  "60-90 minute sessions", 
-                  "Seasonal maintenance", 
-                  "Photo documentation", 
-                  "HomeVitals integration"
-                ]}
-                status="seasonal"
-              />
-              
-              <ServiceCard
-                title="HandleiT!"
-                description="Connect with verified contractors for larger home improvement projects"
-                icon={Hammer}
-                features={[
-                  "Private contractor bidding", 
-                  "Escrow payment protection", 
-                  "Project milestone tracking", 
-                  "Quality assurance"
-                ]}
-                status="available"
-              />
-              
-              <ServiceCard
-                title="CheckiT!"
-                description="Comprehensive home health inspections and reporting"
-                icon={CheckCircle}
-                features={[
-                  "Home health scoring", 
-                  "Safety assessments", 
-                  "Detailed reporting", 
-                  "Insurance integration"
-                ]}
-                status="coming-soon"
-              />
-            </div>
-          </div>
-        </section>
-        
-        {/* Membership Tiers Section */}
-        <section className="py-16" data-testid="membership-section">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-              <h2 className="text-3xl font-bold text-foreground mb-4">Membership Plans</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Choose the perfect plan for your home management needs
-              </p>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <MembershipTierCard
-                name="HomeHUB"
-                price="Free"
-                description="Community access and basic features"
-                features={[
-                  "Community feed access",
-                  "Neighborhood updates",
-                  "Basic contractor directory",
-                  "Educational resources"
-                ]}
-              />
-              
-              <MembershipTierCard
-                name="HomePRO"
-                price="$49"
-                description="Essential home services for busy homeowners"
-                features={[
-                  "PreventiT! 60-min sessions",
-                  "FixiT! at $70/hr",
-                  "2 concurrent bookings",
-                  "HandleiT! contractor access",
-                  "LoyalizeiT! rewards"
-                ]}
-                isPopular
-                isCurrentTier
-              />
-              
-              <MembershipTierCard
-                name="HomeHERO"
-                price="$79"
-                description="Advanced features for proactive home management"
-                features={[
-                  "PreventiT! 90-min sessions",
-                  "FixiT! at $60/hr",
-                  "Priority scheduling",
-                  "CheckiT! inspections",
-                  "Enhanced rewards"
-                ]}
-              />
-              
-              <MembershipTierCard
-                name="HomeGURU"
-                price="$129"
-                description="All-inclusive home management solution"
-                features={[
-                  "PreventiT! 120-min sessions",
-                  "FixiT! at $55/hr",
-                  "Bundle Builder access",
-                  "Premium contractor network",
-                  "Unlimited HomeVitals"
-                ]}
-              />
-            </div>
-          </div>
-        </section>
-      </main>
-      
-      <Footer />
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-foreground mb-4">Home</h1>
+      <p className="text-muted-foreground">Welcome to HomeHub - your digital headquarters for home services.</p>
+    </div>
+  );
+}
+
+function StorePage() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-foreground mb-4">Store</h1>
+      <p className="text-muted-foreground">Browse home improvement products and services.</p>
+    </div>
+  );
+}
+
+function InvoicesPage() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-foreground mb-4">Invoices</h1>
+      <p className="text-muted-foreground">Manage your service invoices and payments.</p>
+    </div>
+  );
+}
+
+function ContractorsPage() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-foreground mb-4">Contractors</h1>
+      <p className="text-muted-foreground">Find and manage trusted contractors in your area.</p>
+    </div>
+  );
+}
+
+function SavvySaverPage() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-foreground mb-4">Savvy Saver</h1>
+      <p className="text-muted-foreground">Discover local deals and offers from merchants.</p>
+    </div>
+  );
+}
+
+function CheckITPage() {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold text-foreground mb-4">CheckIT!</h1>
+      <p className="text-muted-foreground">Schedule comprehensive home health inspections.</p>
     </div>
   );
 }
@@ -169,17 +75,45 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={HomePage}/>
+      <Route path="/dashboard" component={DashboardPage}/>
+      <Route path="/store" component={StorePage}/>
+      <Route path="/service-requests" component={ServiceRequests}/>
+      <Route path="/invoices" component={InvoicesPage}/>
+      <Route path="/contractors" component={ContractorsPage}/>
+      <Route path="/savvy-saver" component={SavvySaverPage}/>
+      <Route path="/checkit" component={CheckITPage}/>
       <Route component={NotFound} />
     </Switch>
   );
 }
 
 function App() {
+  // Custom sidebar width for platform application
+  const style = {
+    "--sidebar-width": "16rem",       // 256px for better navigation
+    "--sidebar-width-icon": "4rem",   // default icon width
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <SidebarProvider style={style as React.CSSProperties}>
+          <div className="flex h-screen w-full bg-background">
+            <AppSidebar />
+            <div className="flex flex-col flex-1 overflow-hidden">
+              <header className="flex items-center justify-between p-4 border-b border-border bg-card">
+                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <div className="text-sm text-muted-foreground">
+                  HomeHub Platform
+                </div>
+              </header>
+              <main className="flex-1 overflow-auto bg-background">
+                <Router />
+              </main>
+            </div>
+          </div>
+        </SidebarProvider>
         <Toaster />
-        <Router />
       </TooltipProvider>
     </QueryClientProvider>
   );

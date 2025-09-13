@@ -1,7 +1,7 @@
 # HomeHub Design Guidelines
 
 ## Design Approach
-**Reference-Based Approach**: Drawing inspiration from **Airbnb** and **Thumbtack** for the service marketplace experience, with **Linear** influences for dashboard components. This platform requires visual appeal to build trust in home services while maintaining utility for complex workflows.
+**Platform-First Approach**: Professional dashboard interface inspired by **Linear**, **Notion**, and **Stripe Dashboard** for enterprise-grade home services management. This is a secure platform that requires sophisticated navigation, data visualization, and workflow management capabilities.
 
 ## Core Design Elements
 
