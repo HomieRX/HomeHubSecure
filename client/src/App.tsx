@@ -11,6 +11,17 @@ import Profile from "@/pages/Profile";
 import HomeDetails from "@/pages/HomeDetails";
 import Calendar from "@/pages/Calendar";
 import Messages from "@/pages/Messages";
+import Repairs from "@/pages/Repairs";
+import Maintenance from "@/pages/Maintenance";
+import Inspections from "@/pages/Inspections";
+import Rewards from "@/pages/Rewards";
+import Contractors from "@/pages/Contractors";
+import Estimates from "@/pages/Estimates";
+import Merchants from "@/pages/Merchants";
+import Community from "@/pages/Community";
+import Timeline from "@/pages/Timeline";
+import Groups from "@/pages/Groups";
+import SavvySaver from "@/pages/SavvySaver";
 import NotFound from "@/pages/not-found";
 
 function DashboardPage() {
@@ -49,33 +60,6 @@ function InvoicesPage() {
   );
 }
 
-function ContractorsPage() {
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold text-foreground mb-4">Contractors</h1>
-      <p className="text-muted-foreground">Find and manage trusted contractors in your area.</p>
-    </div>
-  );
-}
-
-function SavvySaverPage() {
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold text-foreground mb-4">Savvy Saver</h1>
-      <p className="text-muted-foreground">Discover local deals and offers from merchants.</p>
-    </div>
-  );
-}
-
-function CheckITPage() {
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold text-foreground mb-4">CheckIT!</h1>
-      <p className="text-muted-foreground">Schedule comprehensive home health inspections.</p>
-    </div>
-  );
-}
-
 function Router() {
   return (
     <Switch>
@@ -84,9 +68,17 @@ function Router() {
       <Route path="/store" component={StorePage}/>
       <Route path="/service-requests" component={ServiceRequests}/>
       <Route path="/invoices" component={InvoicesPage}/>
-      <Route path="/contractors" component={ContractorsPage}/>
-      <Route path="/savvy-saver" component={SavvySaverPage}/>
-      <Route path="/checkit" component={CheckITPage}/>
+      <Route path="/repairs" component={Repairs}/>
+      <Route path="/maintenance" component={Maintenance}/>
+      <Route path="/inspections" component={Inspections}/>
+      <Route path="/rewards" component={Rewards}/>
+      <Route path="/contractors" component={Contractors}/>
+      <Route path="/estimates" component={Estimates}/>
+      <Route path="/merchants" component={Merchants}/>
+      <Route path="/savvy-saver" component={SavvySaver}/>
+      <Route path="/community" component={Community}/>
+      <Route path="/timeline" component={Timeline}/>
+      <Route path="/groups" component={Groups}/>
       <Route path="/profile" component={Profile}/>
       <Route path="/profile/home-details" component={HomeDetails}/>
       <Route path="/calendar" component={Calendar}/>

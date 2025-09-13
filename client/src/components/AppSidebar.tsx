@@ -11,30 +11,74 @@ import {
 } from '@/components/ui/sidebar';
 import { Badge } from '@/components/ui/badge';
 import {
-  Home,
-  BarChart3,
-  Store,
-  ClipboardList,
-  FileText,
+  LayoutDashboard,
+  Wrench,
+  Shield,
+  ClipboardCheck,
   Users,
-  Tag,
-  CheckCircle,
+  FileText,
+  Building2,
+  Percent,
+  Gift,
+  Users2,
+  Activity,
+  UsersRound,
+  ChevronRight,
+  ChevronDown
 } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { useState } from 'react';
 
 const navigationItems = [
-  { title: 'Home', url: '/', icon: Home },
-  { title: 'Dashboard', url: '/dashboard', icon: BarChart3 },
-  { title: 'Store', url: '/store', icon: Store },
-  { title: 'Service Requests', url: '/service-requests', icon: ClipboardList },
-  { title: 'Invoices', url: '/invoices', icon: FileText },
-  { title: 'Contractors', url: '/contractors', icon: Users },
-  { title: 'Savvy Saver', url: '/savvy-saver', icon: Tag },
-  { title: 'CheckIT!', url: '/checkit', icon: CheckCircle },
+  { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
+  { title: 'Repairs', url: '/repairs', icon: Wrench, subtitle: 'FixiT!' },
+  { title: 'Maintenance', url: '/maintenance', icon: Shield, subtitle: 'PreventiT!' },
+  { title: 'Inspections', url: '/inspections', icon: ClipboardCheck, subtitle: 'CheckiT!' },
+  { 
+    title: 'Contractors', 
+    url: '/contractors', 
+    icon: Users,
+    subtitle: 'HandleiT!',
+    submenu: [
+      { title: 'Estimates', url: '/estimates', icon: FileText }
+    ]
+  },
+  { 
+    title: 'Merchants', 
+    url: '/merchants', 
+    icon: Building2,
+    submenu: [
+      { title: 'Savvy Saver', url: '/savvy-saver', icon: Percent }
+    ]
+  },
+  { title: 'Rewards', url: '/rewards', icon: Gift, subtitle: 'LoyalizeiT!' },
+  { 
+    title: 'Community', 
+    url: '/community', 
+    icon: Users2,
+    subtitle: 'CommuniT!',
+    submenu: [
+      { title: 'Timeline', url: '/timeline', icon: Activity },
+      { title: 'Groups', url: '/groups', icon: UsersRound }
+    ]
+  },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+
+  const toggleMenu = (title: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(title) 
+        ? prev.filter(item => item !== title)
+        : [...prev, title]
+    );
+  };
+
+  const isSubmenuActive = (submenu: any[]) => {
+    return submenu.some(subitem => location === subitem.url);
+  };
 
   const handleNavigation = (url: string) => {
     console.log(`Navigating to ${url}`);
@@ -60,20 +104,77 @@ export function AppSidebar() {
             <SidebarMenu>
               {navigationItems.map((item) => {
                 const isActive = location === item.url;
+                const hasSubmenu = item.submenu && item.submenu.length > 0;
+                const isExpanded = expandedMenus.includes(item.title);
+                const submenuActive = hasSubmenu ? isSubmenuActive(item.submenu) : false;
+                
                 return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      onClick={() => handleNavigation(item.url)}
-                      data-testid={`nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
-                    >
-                      <a href={item.url} className="flex items-center gap-3">
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
-                      </a>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  <div key={item.title}>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive || submenuActive}
+                        data-testid={`nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                      >
+                        <a 
+                          href={hasSubmenu ? '#' : item.url}
+                          onClick={(e) => {
+                            if (hasSubmenu) {
+                              e.preventDefault();
+                              toggleMenu(item.title);
+                            } else {
+                              handleNavigation(item.url);
+                            }
+                          }}
+                          className="flex items-center gap-3 w-full"
+                        >
+                          <item.icon className="h-4 w-4" />
+                          <div className="flex-1">
+                            <span>{item.title}</span>
+                            {item.subtitle && (
+                              <div className="text-xs text-muted-foreground">{item.subtitle}</div>
+                            )}
+                          </div>
+                          {hasSubmenu && (
+                            <div className="ml-auto">
+                              {isExpanded ? (
+                                <ChevronDown className="h-3 w-3" />
+                              ) : (
+                                <ChevronRight className="h-3 w-3" />
+                              )}
+                            </div>
+                          )}
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    
+                    {hasSubmenu && isExpanded && (
+                      <div className="ml-6 border-l border-sidebar-border pl-3 space-y-1">
+                        {item.submenu.map((subitem) => {
+                          const isSubActive = location === subitem.url;
+                          return (
+                            <SidebarMenuItem key={subitem.title}>
+                              <SidebarMenuButton
+                                asChild
+                                isActive={isSubActive}
+                                size="sm"
+                                data-testid={`nav-sub-${subitem.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                              >
+                                <a 
+                                  href={subitem.url}
+                                  onClick={() => handleNavigation(subitem.url)}
+                                  className="flex items-center gap-3"
+                                >
+                                  <subitem.icon className="h-3 w-3" />
+                                  <span>{subitem.title}</span>
+                                </a>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </SidebarMenu>
