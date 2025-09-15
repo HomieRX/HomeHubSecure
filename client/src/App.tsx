@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PlatformHeader } from "@/components/PlatformHeader";
+import Services from "@/pages/Services";
 import ServiceRequests from "@/pages/ServiceRequests";
 import Profile from "@/pages/Profile";
 import HomeDetails from "@/pages/HomeDetails";
@@ -66,6 +67,7 @@ function Router() {
     <Switch>
       <Route path="/" component={HomePage}/>
       <Route path="/dashboard" component={DashboardPage}/>
+      <Route path="/services" component={Services}/>
       <Route path="/store" component={StorePage}/>
       <Route path="/service-requests" component={ServiceRequests}/>
       <Route path="/invoices" component={InvoicesPage}/>
