@@ -1,37 +1,1100 @@
-import { type User, type InsertUser } from "@shared/schema";
+import { 
+  type User, type InsertUser,
+  type MemberProfile, type InsertMemberProfile,
+  type ContractorProfile, type InsertContractorProfile,
+  type MerchantProfile, type InsertMerchantProfile,
+  type HomeDetails, type InsertHomeDetails,
+  type ServiceRequest, type InsertServiceRequest,
+  type WorkOrder, type InsertWorkOrder,
+  type Estimate, type InsertEstimate,
+  type Invoice, type InsertInvoice,
+  type Deal, type InsertDeal,
+  type Message, type InsertMessage,
+  type Notification, type InsertNotification,
+  type CalendarEvent, type InsertCalendarEvent,
+  type LoyaltyPointTransaction,
+  type DealRedemption,
+  type CommunityPost,
+  type CommunityGroup
+} from "@shared/schema";
 import { randomUUID } from "crypto";
 
-// modify the interface with any CRUD methods
-// you might need
+// Helper to merge updates without writing undefined values
+function applyDefined<T>(base: T, updates: Partial<Record<keyof T, unknown>>): T {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      (result as any)[key] = value;
+    }
+  }
+  return result;
+}
 
+// Comprehensive storage interface for all HomeHub business models
 export interface IStorage {
+  // User management
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, updates: Partial<InsertUser>): Promise<User | undefined>;
+  
+  // Member profiles
+  getMemberProfile(id: string): Promise<MemberProfile | undefined>;
+  getMemberProfileByUserId(userId: string): Promise<MemberProfile | undefined>;
+  createMemberProfile(profile: InsertMemberProfile): Promise<MemberProfile>;
+  updateMemberProfile(id: string, updates: Partial<InsertMemberProfile>): Promise<MemberProfile | undefined>;
+  getMembersByTier(tier: string): Promise<MemberProfile[]>;
+  
+  // Contractor profiles
+  getContractorProfile(id: string): Promise<ContractorProfile | undefined>;
+  getContractorProfileByUserId(userId: string): Promise<ContractorProfile | undefined>;
+  createContractorProfile(profile: InsertContractorProfile): Promise<ContractorProfile>;
+  updateContractorProfile(id: string, updates: Partial<InsertContractorProfile>): Promise<ContractorProfile | undefined>;
+  getContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<ContractorProfile[]>;
+  verifyContractor(id: string, verifiedBy: string): Promise<ContractorProfile | undefined>;
+  
+  // Merchant profiles
+  getMerchantProfile(id: string): Promise<MerchantProfile | undefined>;
+  getMerchantProfileByUserId(userId: string): Promise<MerchantProfile | undefined>;
+  createMerchantProfile(profile: InsertMerchantProfile): Promise<MerchantProfile>;
+  updateMerchantProfile(id: string, updates: Partial<InsertMerchantProfile>): Promise<MerchantProfile | undefined>;
+  getMerchants(filters?: { isVerified?: boolean; isActive?: boolean; businessType?: string; location?: string }): Promise<MerchantProfile[]>;
+  
+  // Home details
+  getHomeDetails(id: string): Promise<HomeDetails | undefined>;
+  getHomeDetailsByProfileId(profileId: string): Promise<HomeDetails | undefined>;
+  createHomeDetails(details: InsertHomeDetails): Promise<HomeDetails>;
+  updateHomeDetails(id: string, updates: Partial<InsertHomeDetails>): Promise<HomeDetails | undefined>;
+  
+  // Service requests
+  getServiceRequest(id: string): Promise<ServiceRequest | undefined>;
+  getServiceRequestsByMember(memberId: string): Promise<ServiceRequest[]>;
+  getServiceRequestsByManager(homeManagerId: string): Promise<ServiceRequest[]>;
+  createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest>;
+  updateServiceRequest(id: string, updates: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined>;
+  assignServiceRequest(id: string, homeManagerId: string): Promise<ServiceRequest | undefined>;
+  
+  // Work orders
+  getWorkOrder(id: string): Promise<WorkOrder | undefined>;
+  getWorkOrdersByServiceRequest(serviceRequestId: string): Promise<WorkOrder[]>;
+  getWorkOrdersByManager(homeManagerId: string): Promise<WorkOrder[]>;
+  getWorkOrdersByContractor(contractorId: string): Promise<WorkOrder[]>;
+  createWorkOrder(workOrder: InsertWorkOrder): Promise<WorkOrder>;
+  updateWorkOrder(id: string, updates: Partial<InsertWorkOrder>): Promise<WorkOrder | undefined>;
+  completeWorkOrder(id: string, completionNotes: string): Promise<WorkOrder | undefined>;
+  
+  // Estimates
+  getEstimate(id: string): Promise<Estimate | undefined>;
+  getEstimatesByServiceRequest(serviceRequestId: string): Promise<Estimate[]>;
+  getEstimatesByContractor(contractorId: string): Promise<Estimate[]>;
+  createEstimate(estimate: InsertEstimate): Promise<Estimate>;
+  updateEstimate(id: string, updates: Partial<InsertEstimate>): Promise<Estimate | undefined>;
+  approveEstimate(id: string): Promise<Estimate | undefined>;
+  rejectEstimate(id: string): Promise<Estimate | undefined>;
+  
+  // Invoices
+  getInvoice(id: string): Promise<Invoice | undefined>;
+  getInvoicesByMember(memberId: string): Promise<Invoice[]>;
+  getInvoicesByWorkOrder(workOrderId: string): Promise<Invoice[]>;
+  createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  updateInvoice(id: string, updates: Partial<InsertInvoice>): Promise<Invoice | undefined>;
+  payInvoice(id: string, paymentMethod: string, transactionId: string): Promise<Invoice | undefined>;
+  
+  // Loyalty points
+  getLoyaltyPointBalance(memberId: string): Promise<number>;
+  getLoyaltyPointTransactions(memberId: string): Promise<LoyaltyPointTransaction[]>;
+  addLoyaltyPoints(memberId: string, points: number, description: string, referenceId?: string, referenceType?: string): Promise<LoyaltyPointTransaction>;
+  spendLoyaltyPoints(memberId: string, points: number, description: string, referenceId?: string, referenceType?: string): Promise<LoyaltyPointTransaction>;
+  
+  // Deals
+  getDeal(id: string): Promise<Deal | undefined>;
+  getDealsByMerchant(merchantId: string): Promise<Deal[]>;
+  getActiveDeals(filters?: { category?: string; membershipRequired?: string; isExclusive?: boolean }): Promise<Deal[]>;
+  createDeal(deal: InsertDeal): Promise<Deal>;
+  updateDeal(id: string, updates: Partial<InsertDeal>): Promise<Deal | undefined>;
+  redeemDeal(dealId: string, memberId: string): Promise<DealRedemption>;
+  
+  // Messages
+  getMessage(id: string): Promise<Message | undefined>;
+  getMessagesByUser(userId: string): Promise<Message[]>;
+  getConversation(senderId: string, receiverId: string): Promise<Message[]>;
+  createMessage(message: InsertMessage): Promise<Message>;
+  markMessageAsRead(id: string): Promise<Message | undefined>;
+  
+  // Notifications
+  getNotification(id: string): Promise<Notification | undefined>;
+  getNotificationsByUser(userId: string): Promise<Notification[]>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  markNotificationAsRead(id: string): Promise<Notification | undefined>;
+  markAllNotificationsAsRead(userId: string): Promise<void>;
+  
+  // Calendar events
+  getCalendarEvent(id: string): Promise<CalendarEvent | undefined>;
+  getCalendarEventsByUser(userId: string): Promise<CalendarEvent[]>;
+  createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
+  updateCalendarEvent(id: string, updates: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
+  deleteCalendarEvent(id: string): Promise<boolean>;
+  
+  // Community
+  getCommunityPosts(limit?: number, offset?: number): Promise<CommunityPost[]>;
+  getCommunityPost(id: string): Promise<CommunityPost | undefined>;
+  createCommunityPost(authorId: string, content: string, images?: string[], tags?: string[]): Promise<CommunityPost>;
+  
+  getCommunityGroups(): Promise<CommunityGroup[]>;
+  getCommunityGroup(id: string): Promise<CommunityGroup | undefined>;
+  createCommunityGroup(name: string, description: string, category: string, createdBy: string): Promise<CommunityGroup>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
+  private memberProfiles: Map<string, MemberProfile>;
+  private contractorProfiles: Map<string, ContractorProfile>;
+  private merchantProfiles: Map<string, MerchantProfile>;
+  private homeDetails: Map<string, HomeDetails>;
+  private serviceRequests: Map<string, ServiceRequest>;
+  private workOrders: Map<string, WorkOrder>;
+  private estimates: Map<string, Estimate>;
+  private invoices: Map<string, Invoice>;
+  private loyaltyPointTransactions: Map<string, LoyaltyPointTransaction>;
+  private deals: Map<string, Deal>;
+  private dealRedemptions: Map<string, DealRedemption>;
+  private messages: Map<string, Message>;
+  private notifications: Map<string, Notification>;
+  private calendarEvents: Map<string, CalendarEvent>;
+  private communityPosts: Map<string, CommunityPost>;
+  private communityGroups: Map<string, CommunityGroup>;
 
   constructor() {
     this.users = new Map();
+    this.memberProfiles = new Map();
+    this.contractorProfiles = new Map();
+    this.merchantProfiles = new Map();
+    this.homeDetails = new Map();
+    this.serviceRequests = new Map();
+    this.workOrders = new Map();
+    this.estimates = new Map();
+    this.invoices = new Map();
+    this.loyaltyPointTransactions = new Map();
+    this.deals = new Map();
+    this.dealRedemptions = new Map();
+    this.messages = new Map();
+    this.notifications = new Map();
+    this.calendarEvents = new Map();
+    this.communityPosts = new Map();
+    this.communityGroups = new Map();
   }
 
+  // User management methods
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    return Array.from(this.users.values()).find(user => user.username === username);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(user => user.email === email);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
+    const now = new Date();
+    const user: User = { 
+      id,
+      username: insertUser.username,
+      password: insertUser.password,
+      email: insertUser.email,
+      role: insertUser.role || "homeowner",
+      isActive: insertUser.isActive ?? true,
+      createdAt: now,
+      updatedAt: now
+    };
     this.users.set(id, user);
     return user;
+  }
+
+  async updateUser(id: string, updates: Partial<InsertUser>): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = applyDefined(user, updates);
+    updatedUser.updatedAt = new Date();
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  // Member profile methods
+  async getMemberProfile(id: string): Promise<MemberProfile | undefined> {
+    return this.memberProfiles.get(id);
+  }
+
+  async getMemberProfileByUserId(userId: string): Promise<MemberProfile | undefined> {
+    return Array.from(this.memberProfiles.values()).find(profile => profile.userId === userId);
+  }
+
+  async createMemberProfile(insertProfile: InsertMemberProfile): Promise<MemberProfile> {
+    const id = randomUUID();
+    const now = new Date();
+    const profile: MemberProfile = { 
+      id,
+      userId: insertProfile.userId,
+      nickname: insertProfile.nickname,
+      firstName: insertProfile.firstName || null,
+      lastName: insertProfile.lastName || null,
+      email: insertProfile.email || null,
+      phone: insertProfile.phone || null,
+      avatarUrl: insertProfile.avatarUrl || null,
+      coverImageUrl: insertProfile.coverImageUrl || null,
+      membershipTier: insertProfile.membershipTier || "HomeHUB",
+      loyaltyPoints: insertProfile.loyaltyPoints || 0,
+      bio: insertProfile.bio || null,
+      location: insertProfile.location || null,
+      address: insertProfile.address || null,
+      city: insertProfile.city || null,
+      state: insertProfile.state || null,
+      zipCode: insertProfile.zipCode || null,
+      homeManagerId: insertProfile.homeManagerId || null,
+      joinedAt: now,
+      updatedAt: now
+    };
+    this.memberProfiles.set(id, profile);
+    return profile;
+  }
+
+  async updateMemberProfile(id: string, updates: Partial<InsertMemberProfile>): Promise<MemberProfile | undefined> {
+    const profile = this.memberProfiles.get(id);
+    if (!profile) return undefined;
+    
+    const updatedProfile = applyDefined(profile, updates);
+    updatedProfile.updatedAt = new Date();
+    this.memberProfiles.set(id, updatedProfile);
+    return updatedProfile;
+  }
+
+  async getMembersByTier(tier: string): Promise<MemberProfile[]> {
+    return Array.from(this.memberProfiles.values()).filter(profile => profile.membershipTier === tier);
+  }
+
+  // Contractor profile methods
+  async getContractorProfile(id: string): Promise<ContractorProfile | undefined> {
+    return this.contractorProfiles.get(id);
+  }
+
+  async getContractorProfileByUserId(userId: string): Promise<ContractorProfile | undefined> {
+    return Array.from(this.contractorProfiles.values()).find(profile => profile.userId === userId);
+  }
+
+  async createContractorProfile(insertProfile: InsertContractorProfile): Promise<ContractorProfile> {
+    const id = randomUUID();
+    const now = new Date();
+    const profile: ContractorProfile = { 
+      id,
+      userId: insertProfile.userId,
+      businessName: insertProfile.businessName,
+      firstName: insertProfile.firstName,
+      lastName: insertProfile.lastName,
+      phone: insertProfile.phone,
+      email: insertProfile.email,
+      address: insertProfile.address,
+      city: insertProfile.city,
+      state: insertProfile.state,
+      zipCode: insertProfile.zipCode,
+      serviceRadius: insertProfile.serviceRadius || 25,
+      hourlyRate: insertProfile.hourlyRate || null,
+      licenseNumber: insertProfile.licenseNumber,
+      licenseType: insertProfile.licenseType,
+      licenseExpiryDate: insertProfile.licenseExpiryDate,
+      insuranceProvider: insertProfile.insuranceProvider,
+      insurancePolicyNumber: insertProfile.insurancePolicyNumber,
+      insuranceExpiryDate: insertProfile.insuranceExpiryDate,
+      bondingProvider: insertProfile.bondingProvider || null,
+      bondingAmount: insertProfile.bondingAmount || null,
+      isVerified: false,
+      verifiedAt: null,
+      verifiedBy: null,
+      bio: insertProfile.bio || null,
+      specialties: (insertProfile.specialties as string[]) || null,
+      certifications: (insertProfile.certifications as string[]) || null,
+      yearsExperience: insertProfile.yearsExperience || null,
+      portfolioImages: (insertProfile.portfolioImages as string[]) || null,
+      rating: "0.00",
+      reviewCount: 0,
+      isActive: true,
+      availability: insertProfile.availability || null,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.contractorProfiles.set(id, profile);
+    return profile;
+  }
+
+  async updateContractorProfile(id: string, updates: Partial<InsertContractorProfile>): Promise<ContractorProfile | undefined> {
+    const profile = this.contractorProfiles.get(id);
+    if (!profile) return undefined;
+    
+    const updatedProfile = applyDefined(profile, updates);
+    updatedProfile.updatedAt = new Date();
+    this.contractorProfiles.set(id, updatedProfile);
+    return updatedProfile;
+  }
+
+  async getContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<ContractorProfile[]> {
+    let contractors = Array.from(this.contractorProfiles.values());
+    
+    if (filters?.isVerified !== undefined) {
+      contractors = contractors.filter(c => c.isVerified === filters.isVerified);
+    }
+    if (filters?.isActive !== undefined) {
+      contractors = contractors.filter(c => c.isActive === filters.isActive);
+    }
+    
+    return contractors;
+  }
+
+  async verifyContractor(id: string, verifiedBy: string): Promise<ContractorProfile | undefined> {
+    const profile = this.contractorProfiles.get(id);
+    if (!profile) return undefined;
+    
+    const updatedProfile: ContractorProfile = { 
+      ...profile, 
+      isVerified: true,
+      verifiedAt: new Date(),
+      verifiedBy,
+      updatedAt: new Date() 
+    };
+    this.contractorProfiles.set(id, updatedProfile);
+    return updatedProfile;
+  }
+
+  // Merchant profile methods
+  async getMerchantProfile(id: string): Promise<MerchantProfile | undefined> {
+    return this.merchantProfiles.get(id);
+  }
+
+  async getMerchantProfileByUserId(userId: string): Promise<MerchantProfile | undefined> {
+    return Array.from(this.merchantProfiles.values()).find(profile => profile.userId === userId);
+  }
+
+  async createMerchantProfile(insertProfile: InsertMerchantProfile): Promise<MerchantProfile> {
+    const id = randomUUID();
+    const now = new Date();
+    const profile: MerchantProfile = { 
+      id,
+      userId: insertProfile.userId,
+      businessName: insertProfile.businessName,
+      ownerName: insertProfile.ownerName,
+      phone: insertProfile.phone,
+      email: insertProfile.email,
+      website: insertProfile.website || null,
+      address: insertProfile.address,
+      city: insertProfile.city,
+      state: insertProfile.state,
+      zipCode: insertProfile.zipCode,
+      businessType: insertProfile.businessType,
+      businessDescription: insertProfile.businessDescription,
+      businessLicense: insertProfile.businessLicense,
+      taxId: insertProfile.taxId,
+      operatingHours: insertProfile.operatingHours || null,
+      serviceArea: insertProfile.serviceArea || null,
+      specialties: (insertProfile.specialties as string[]) || null,
+      acceptedPaymentMethods: (insertProfile.acceptedPaymentMethods as string[]) || null,
+      businessImages: (insertProfile.businessImages as string[]) || null,
+      logoUrl: insertProfile.logoUrl || null,
+      rating: "0.00",
+      reviewCount: 0,
+      isVerified: false,
+      verifiedAt: null,
+      verifiedBy: null,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.merchantProfiles.set(id, profile);
+    return profile;
+  }
+
+  async updateMerchantProfile(id: string, updates: Partial<InsertMerchantProfile>): Promise<MerchantProfile | undefined> {
+    const profile = this.merchantProfiles.get(id);
+    if (!profile) return undefined;
+    
+    const updatedProfile = applyDefined(profile, updates);
+    updatedProfile.updatedAt = new Date();
+    this.merchantProfiles.set(id, updatedProfile);
+    return updatedProfile;
+  }
+
+  async getMerchants(filters?: { isVerified?: boolean; isActive?: boolean; businessType?: string; location?: string }): Promise<MerchantProfile[]> {
+    return Array.from(this.merchantProfiles.values());
+  }
+
+  // Home details methods
+  async getHomeDetails(id: string): Promise<HomeDetails | undefined> {
+    return this.homeDetails.get(id);
+  }
+
+  async getHomeDetailsByProfileId(profileId: string): Promise<HomeDetails | undefined> {
+    return Array.from(this.homeDetails.values()).find(details => details.profileId === profileId);
+  }
+
+  async createHomeDetails(insertDetails: InsertHomeDetails): Promise<HomeDetails> {
+    const id = randomUUID();
+    const now = new Date();
+    const details: HomeDetails = {
+      id,
+      profileId: insertDetails.profileId,
+      propertyType: insertDetails.propertyType || null,
+      yearBuilt: insertDetails.yearBuilt || null,
+      squareFootage: insertDetails.squareFootage || null,
+      bedrooms: insertDetails.bedrooms || null,
+      bathrooms: insertDetails.bathrooms || null,
+      lotSize: insertDetails.lotSize || null,
+      heatingType: insertDetails.heatingType || null,
+      coolingType: insertDetails.coolingType || null,
+      roofType: insertDetails.roofType || null,
+      foundation: insertDetails.foundation || null,
+      flooring: insertDetails.flooring || null,
+      appliances: insertDetails.appliances || null,
+      specialFeatures: insertDetails.specialFeatures || null,
+      maintenanceNotes: insertDetails.maintenanceNotes || null,
+      emergencyContacts: insertDetails.emergencyContacts || null,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.homeDetails.set(id, details);
+    return details;
+  }
+
+  async updateHomeDetails(id: string, updates: Partial<InsertHomeDetails>): Promise<HomeDetails | undefined> {
+    const details = this.homeDetails.get(id);
+    if (!details) return undefined;
+    
+    const updatedDetails = applyDefined(details, updates);
+    updatedDetails.updatedAt = new Date();
+    this.homeDetails.set(id, updatedDetails);
+    return updatedDetails;
+  }
+
+  // Service request methods
+  async getServiceRequest(id: string): Promise<ServiceRequest | undefined> {
+    return this.serviceRequests.get(id);
+  }
+
+  async getServiceRequestsByMember(memberId: string): Promise<ServiceRequest[]> {
+    return Array.from(this.serviceRequests.values()).filter(req => req.memberId === memberId);
+  }
+
+  async getServiceRequestsByManager(homeManagerId: string): Promise<ServiceRequest[]> {
+    return Array.from(this.serviceRequests.values()).filter(req => req.homeManagerId === homeManagerId);
+  }
+
+  async createServiceRequest(insertRequest: InsertServiceRequest): Promise<ServiceRequest> {
+    const id = randomUUID();
+    const now = new Date();
+    const request: ServiceRequest = { 
+      id,
+      memberId: insertRequest.memberId,
+      category: insertRequest.category,
+      title: insertRequest.title,
+      description: insertRequest.description,
+      urgency: insertRequest.urgency || "normal",
+      preferredDateTime: insertRequest.preferredDateTime || null,
+      address: insertRequest.address,
+      city: insertRequest.city,
+      state: insertRequest.state,
+      zipCode: insertRequest.zipCode,
+      images: (insertRequest.images as string[]) || null,
+      status: "pending",
+      homeManagerId: insertRequest.homeManagerId || null,
+      assignedAt: null,
+      estimatedCompletionDate: insertRequest.estimatedCompletionDate || null,
+      actualCompletionDate: null,
+      memberNotes: insertRequest.memberNotes || null,
+      internalNotes: insertRequest.internalNotes || null,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.serviceRequests.set(id, request);
+    return request;
+  }
+
+  async updateServiceRequest(id: string, updates: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined> {
+    const request = this.serviceRequests.get(id);
+    if (!request) return undefined;
+    
+    const updatedRequest = applyDefined(request, updates);
+    updatedRequest.updatedAt = new Date();
+    this.serviceRequests.set(id, updatedRequest);
+    return updatedRequest;
+  }
+
+  async assignServiceRequest(id: string, homeManagerId: string): Promise<ServiceRequest | undefined> {
+    const request = this.serviceRequests.get(id);
+    if (!request) return undefined;
+    
+    const updatedRequest: ServiceRequest = {
+      ...request,
+      homeManagerId,
+      assignedAt: new Date(),
+      status: "assigned",
+      updatedAt: new Date()
+    };
+    this.serviceRequests.set(id, updatedRequest);
+    return updatedRequest;
+  }
+
+  // Work order methods
+  async getWorkOrder(id: string): Promise<WorkOrder | undefined> {
+    return this.workOrders.get(id);
+  }
+
+  async getWorkOrdersByServiceRequest(serviceRequestId: string): Promise<WorkOrder[]> {
+    return Array.from(this.workOrders.values()).filter(wo => wo.serviceRequestId === serviceRequestId);
+  }
+
+  async getWorkOrdersByManager(homeManagerId: string): Promise<WorkOrder[]> {
+    return Array.from(this.workOrders.values()).filter(wo => wo.homeManagerId === homeManagerId);
+  }
+
+  async getWorkOrdersByContractor(contractorId: string): Promise<WorkOrder[]> {
+    return Array.from(this.workOrders.values()).filter(wo => wo.contractorId === contractorId);
+  }
+
+  async createWorkOrder(insertWorkOrder: InsertWorkOrder): Promise<WorkOrder> {
+    const id = randomUUID();
+    const now = new Date();
+    const workOrderNumber = `WO-${Date.now()}`;
+    const workOrder: WorkOrder = { 
+      id,
+      serviceRequestId: insertWorkOrder.serviceRequestId,
+      homeManagerId: insertWorkOrder.homeManagerId,
+      contractorId: insertWorkOrder.contractorId || null,
+      workOrderNumber,
+      status: "created",
+      scheduledStartDate: insertWorkOrder.scheduledStartDate || null,
+      scheduledEndDate: insertWorkOrder.scheduledEndDate || null,
+      actualStartDate: null,
+      actualEndDate: null,
+      workDescription: insertWorkOrder.workDescription,
+      materialsNeeded: insertWorkOrder.materialsNeeded || null,
+      laborHours: insertWorkOrder.laborHours || null,
+      workNotes: insertWorkOrder.workNotes || null,
+      completionNotes: insertWorkOrder.completionNotes || null,
+      beforeImages: (insertWorkOrder.beforeImages as string[]) || null,
+      afterImages: (insertWorkOrder.afterImages as string[]) || null,
+      memberSignature: insertWorkOrder.memberSignature || null,
+      contractorSignature: insertWorkOrder.contractorSignature || null,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.workOrders.set(id, workOrder);
+    return workOrder;
+  }
+
+  async updateWorkOrder(id: string, updates: Partial<InsertWorkOrder>): Promise<WorkOrder | undefined> {
+    const workOrder = this.workOrders.get(id);
+    if (!workOrder) return undefined;
+    
+    const updatedWorkOrder = applyDefined(workOrder, updates);
+    updatedWorkOrder.updatedAt = new Date();
+    this.workOrders.set(id, updatedWorkOrder);
+    return updatedWorkOrder;
+  }
+
+  async completeWorkOrder(id: string, completionNotes: string): Promise<WorkOrder | undefined> {
+    const workOrder = this.workOrders.get(id);
+    if (!workOrder) return undefined;
+    
+    const completedWorkOrder: WorkOrder = {
+      ...workOrder,
+      status: "completed",
+      completionNotes,
+      completedAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.workOrders.set(id, completedWorkOrder);
+    return completedWorkOrder;
+  }
+
+  // Estimate methods
+  async getEstimate(id: string): Promise<Estimate | undefined> {
+    return this.estimates.get(id);
+  }
+
+  async getEstimatesByServiceRequest(serviceRequestId: string): Promise<Estimate[]> {
+    return Array.from(this.estimates.values()).filter(est => est.serviceRequestId === serviceRequestId);
+  }
+
+  async getEstimatesByContractor(contractorId: string): Promise<Estimate[]> {
+    return Array.from(this.estimates.values()).filter(est => est.contractorId === contractorId);
+  }
+
+  async createEstimate(insertEstimate: InsertEstimate): Promise<Estimate> {
+    const id = randomUUID();
+    const now = new Date();
+    const estimateNumber = `EST-${Date.now()}`;
+    const estimate: Estimate = { 
+      id,
+      serviceRequestId: insertEstimate.serviceRequestId,
+      contractorId: insertEstimate.contractorId,
+      estimateNumber,
+      title: insertEstimate.title,
+      description: insertEstimate.description,
+      laborCost: insertEstimate.laborCost,
+      materialCost: insertEstimate.materialCost,
+      additionalCosts: insertEstimate.additionalCosts || "0.00",
+      totalCost: insertEstimate.totalCost,
+      estimatedHours: insertEstimate.estimatedHours || null,
+      startDate: insertEstimate.startDate || null,
+      completionDate: insertEstimate.completionDate || null,
+      materials: insertEstimate.materials || null,
+      laborBreakdown: insertEstimate.laborBreakdown || null,
+      terms: insertEstimate.terms || null,
+      validUntil: insertEstimate.validUntil,
+      status: "pending",
+      submittedAt: now,
+      respondedAt: null,
+      notes: insertEstimate.notes || null,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.estimates.set(id, estimate);
+    return estimate;
+  }
+
+  async updateEstimate(id: string, updates: Partial<InsertEstimate>): Promise<Estimate | undefined> {
+    const estimate = this.estimates.get(id);
+    if (!estimate) return undefined;
+    
+    const updatedEstimate = applyDefined(estimate, updates);
+    updatedEstimate.updatedAt = new Date();
+    this.estimates.set(id, updatedEstimate);
+    return updatedEstimate;
+  }
+
+  async approveEstimate(id: string): Promise<Estimate | undefined> {
+    const estimate = this.estimates.get(id);
+    if (!estimate) return undefined;
+    
+    const approvedEstimate: Estimate = {
+      ...estimate,
+      status: "approved",
+      respondedAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.estimates.set(id, approvedEstimate);
+    return approvedEstimate;
+  }
+
+  async rejectEstimate(id: string): Promise<Estimate | undefined> {
+    const estimate = this.estimates.get(id);
+    if (!estimate) return undefined;
+    
+    const rejectedEstimate: Estimate = {
+      ...estimate,
+      status: "rejected",
+      respondedAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.estimates.set(id, rejectedEstimate);
+    return rejectedEstimate;
+  }
+
+  // Invoice methods
+  async getInvoice(id: string): Promise<Invoice | undefined> {
+    return this.invoices.get(id);
+  }
+
+  async getInvoicesByMember(memberId: string): Promise<Invoice[]> {
+    return Array.from(this.invoices.values()).filter(inv => inv.memberId === memberId);
+  }
+
+  async getInvoicesByWorkOrder(workOrderId: string): Promise<Invoice[]> {
+    return Array.from(this.invoices.values()).filter(inv => inv.workOrderId === workOrderId);
+  }
+
+  async createInvoice(insertInvoice: InsertInvoice): Promise<Invoice> {
+    const id = randomUUID();
+    const now = new Date();
+    const invoiceNumber = `INV-${Date.now()}`;
+    const invoice: Invoice = { 
+      id,
+      workOrderId: insertInvoice.workOrderId,
+      memberId: insertInvoice.memberId,
+      invoiceNumber,
+      subtotal: insertInvoice.subtotal,
+      tax: insertInvoice.tax || "0.00",
+      total: insertInvoice.total,
+      loyaltyPointsUsed: insertInvoice.loyaltyPointsUsed || 0,
+      loyaltyPointsValue: insertInvoice.loyaltyPointsValue || "0.00",
+      amountDue: insertInvoice.amountDue,
+      loyaltyPointsEarned: insertInvoice.loyaltyPointsEarned || 0,
+      status: "draft",
+      dueDate: insertInvoice.dueDate,
+      paidAt: null,
+      paymentMethod: null,
+      paymentTransactionId: null,
+      lineItems: insertInvoice.lineItems,
+      notes: insertInvoice.notes || null,
+      sentAt: null,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.invoices.set(id, invoice);
+    return invoice;
+  }
+
+  async updateInvoice(id: string, updates: Partial<InsertInvoice>): Promise<Invoice | undefined> {
+    const invoice = this.invoices.get(id);
+    if (!invoice) return undefined;
+    
+    const updatedInvoice = applyDefined(invoice, updates);
+    updatedInvoice.updatedAt = new Date();
+    this.invoices.set(id, updatedInvoice);
+    return updatedInvoice;
+  }
+
+  async payInvoice(id: string, paymentMethod: string, transactionId: string): Promise<Invoice | undefined> {
+    const invoice = this.invoices.get(id);
+    if (!invoice) return undefined;
+    
+    const paidInvoice: Invoice = {
+      ...invoice,
+      status: "paid",
+      paidAt: new Date(),
+      paymentMethod,
+      paymentTransactionId: transactionId,
+      updatedAt: new Date()
+    };
+    this.invoices.set(id, paidInvoice);
+    return paidInvoice;
+  }
+
+  // Loyalty point methods
+  async getLoyaltyPointBalance(memberId: string): Promise<number> {
+    const transactions = Array.from(this.loyaltyPointTransactions.values())
+      .filter(t => t.memberId === memberId);
+    return transactions.reduce((sum, t) => sum + t.points, 0);
+  }
+
+  async getLoyaltyPointTransactions(memberId: string): Promise<LoyaltyPointTransaction[]> {
+    return Array.from(this.loyaltyPointTransactions.values())
+      .filter(t => t.memberId === memberId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async addLoyaltyPoints(memberId: string, points: number, description: string, referenceId?: string, referenceType?: string): Promise<LoyaltyPointTransaction> {
+    const id = randomUUID();
+    const transaction: LoyaltyPointTransaction = {
+      id,
+      memberId,
+      transactionType: "earned",
+      points,
+      description,
+      referenceId: referenceId || null,
+      referenceType: referenceType || null,
+      expiresAt: null, // Could implement expiry logic
+      createdAt: new Date()
+    };
+    this.loyaltyPointTransactions.set(id, transaction);
+    return transaction;
+  }
+
+  async spendLoyaltyPoints(memberId: string, points: number, description: string, referenceId?: string, referenceType?: string): Promise<LoyaltyPointTransaction> {
+    const id = randomUUID();
+    const transaction: LoyaltyPointTransaction = {
+      id,
+      memberId,
+      transactionType: "spent",
+      points: -points,
+      description,
+      referenceId: referenceId || null,
+      referenceType: referenceType || null,
+      expiresAt: null,
+      createdAt: new Date()
+    };
+    this.loyaltyPointTransactions.set(id, transaction);
+    return transaction;
+  }
+
+  // Deal methods
+  async getDeal(id: string): Promise<Deal | undefined> {
+    return this.deals.get(id);
+  }
+
+  async getDealsByMerchant(merchantId: string): Promise<Deal[]> {
+    return Array.from(this.deals.values()).filter(deal => deal.merchantId === merchantId);
+  }
+
+  async getActiveDeals(filters?: { category?: string; membershipRequired?: string; isExclusive?: boolean }): Promise<Deal[]> {
+    return Array.from(this.deals.values()).filter(deal => deal.isActive);
+  }
+
+  async createDeal(insertDeal: InsertDeal): Promise<Deal> {
+    const id = randomUUID();
+    const now = new Date();
+    const deal: Deal = { 
+      id,
+      merchantId: insertDeal.merchantId,
+      title: insertDeal.title,
+      description: insertDeal.description,
+      category: insertDeal.category,
+      discountType: insertDeal.discountType,
+      discountValue: insertDeal.discountValue,
+      originalPrice: insertDeal.originalPrice || null,
+      finalPrice: insertDeal.finalPrice || null,
+      validFrom: insertDeal.validFrom,
+      validUntil: insertDeal.validUntil,
+      isExclusive: insertDeal.isExclusive || false,
+      membershipRequired: insertDeal.membershipRequired || null,
+      maxUses: insertDeal.maxUses || null,
+      currentUses: 0,
+      tags: (insertDeal.tags as string[]) || null,
+      termsAndConditions: insertDeal.termsAndConditions,
+      images: (insertDeal.images as string[]) || null,
+      isActive: insertDeal.isActive ?? true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.deals.set(id, deal);
+    return deal;
+  }
+
+  async updateDeal(id: string, updates: Partial<InsertDeal>): Promise<Deal | undefined> {
+    const deal = this.deals.get(id);
+    if (!deal) return undefined;
+    
+    const updatedDeal = applyDefined(deal, updates);
+    updatedDeal.updatedAt = new Date();
+    this.deals.set(id, updatedDeal);
+    return updatedDeal;
+  }
+
+  async redeemDeal(dealId: string, memberId: string): Promise<DealRedemption> {
+    const id = randomUUID();
+    const redemption: DealRedemption = {
+      id,
+      dealId,
+      memberId,
+      redemptionCode: `RDM-${Date.now()}`,
+      usedAt: null,
+      isUsed: false,
+      createdAt: new Date()
+    };
+    this.dealRedemptions.set(id, redemption);
+    return redemption;
+  }
+
+  // Message methods
+  async getMessage(id: string): Promise<Message | undefined> {
+    return this.messages.get(id);
+  }
+
+  async getMessagesByUser(userId: string): Promise<Message[]> {
+    return Array.from(this.messages.values())
+      .filter(msg => msg.senderId === userId || msg.receiverId === userId);
+  }
+
+  async getConversation(senderId: string, receiverId: string): Promise<Message[]> {
+    return Array.from(this.messages.values())
+      .filter(msg => 
+        (msg.senderId === senderId && msg.receiverId === receiverId) ||
+        (msg.senderId === receiverId && msg.receiverId === senderId)
+      )
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async createMessage(insertMessage: InsertMessage): Promise<Message> {
+    const id = randomUUID();
+    const message: Message = { 
+      id,
+      senderId: insertMessage.senderId,
+      receiverId: insertMessage.receiverId,
+      subject: insertMessage.subject || null,
+      content: insertMessage.content,
+      isRead: insertMessage.isRead || false,
+      threadId: insertMessage.threadId || null,
+      attachments: insertMessage.attachments || null,
+      messageType: insertMessage.messageType || "general",
+      relatedEntityId: insertMessage.relatedEntityId || null,
+      relatedEntityType: insertMessage.relatedEntityType || null,
+      createdAt: new Date()
+    };
+    this.messages.set(id, message);
+    return message;
+  }
+
+  async markMessageAsRead(id: string): Promise<Message | undefined> {
+    const message = this.messages.get(id);
+    if (!message) return undefined;
+    
+    const readMessage: Message = { ...message, isRead: true };
+    this.messages.set(id, readMessage);
+    return readMessage;
+  }
+
+  // Notification methods
+  async getNotification(id: string): Promise<Notification | undefined> {
+    return this.notifications.get(id);
+  }
+
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    return Array.from(this.notifications.values())
+      .filter(notif => notif.userId === userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async createNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const id = randomUUID();
+    const notification: Notification = { 
+      id,
+      userId: insertNotification.userId,
+      title: insertNotification.title,
+      message: insertNotification.message,
+      type: insertNotification.type,
+      isRead: insertNotification.isRead || false,
+      actionUrl: insertNotification.actionUrl || null,
+      metadata: insertNotification.metadata || null,
+      createdAt: new Date()
+    };
+    this.notifications.set(id, notification);
+    return notification;
+  }
+
+  async markNotificationAsRead(id: string): Promise<Notification | undefined> {
+    const notification = this.notifications.get(id);
+    if (!notification) return undefined;
+    
+    const readNotification: Notification = { ...notification, isRead: true };
+    this.notifications.set(id, readNotification);
+    return readNotification;
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    Array.from(this.notifications.values())
+      .filter(notif => notif.userId === userId && !notif.isRead)
+      .forEach(notif => {
+        const readNotification: Notification = { ...notif, isRead: true };
+        this.notifications.set(notif.id, readNotification);
+      });
+  }
+
+  // Calendar event methods
+  async getCalendarEvent(id: string): Promise<CalendarEvent | undefined> {
+    return this.calendarEvents.get(id);
+  }
+
+  async getCalendarEventsByUser(userId: string): Promise<CalendarEvent[]> {
+    return Array.from(this.calendarEvents.values())
+      .filter(event => event.userId === userId)
+      .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+  }
+
+  async createCalendarEvent(insertEvent: InsertCalendarEvent): Promise<CalendarEvent> {
+    const id = randomUUID();
+    const now = new Date();
+    const event: CalendarEvent = { 
+      id,
+      userId: insertEvent.userId,
+      title: insertEvent.title,
+      description: insertEvent.description || null,
+      startTime: insertEvent.startTime,
+      endTime: insertEvent.endTime || null,
+      eventType: insertEvent.eventType,
+      location: insertEvent.location || null,
+      attendees: insertEvent.attendees || null,
+      reminderMinutes: insertEvent.reminderMinutes || "15",
+      isRecurring: insertEvent.isRecurring || false,
+      recurrencePattern: insertEvent.recurrencePattern || null,
+      relatedEntityId: insertEvent.relatedEntityId || null,
+      relatedEntityType: insertEvent.relatedEntityType || null,
+      metadata: insertEvent.metadata || null,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.calendarEvents.set(id, event);
+    return event;
+  }
+
+  async updateCalendarEvent(id: string, updates: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined> {
+    const event = this.calendarEvents.get(id);
+    if (!event) return undefined;
+    
+    const updatedEvent = applyDefined(event, updates);
+    updatedEvent.updatedAt = new Date();
+    this.calendarEvents.set(id, updatedEvent);
+    return updatedEvent;
+  }
+
+  async deleteCalendarEvent(id: string): Promise<boolean> {
+    return this.calendarEvents.delete(id);
+  }
+
+  // Community methods
+  async getCommunityPosts(limit?: number, offset?: number): Promise<CommunityPost[]> {
+    const posts = Array.from(this.communityPosts.values())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    
+    if (limit !== undefined) {
+      const start = offset || 0;
+      return posts.slice(start, start + limit);
+    }
+    
+    return posts;
+  }
+
+  async getCommunityPost(id: string): Promise<CommunityPost | undefined> {
+    return this.communityPosts.get(id);
+  }
+
+  async createCommunityPost(authorId: string, content: string, images?: string[], tags?: string[]): Promise<CommunityPost> {
+    const id = randomUUID();
+    const now = new Date();
+    const post: CommunityPost = {
+      id,
+      authorId,
+      content,
+      images: images || null,
+      tags: tags || null,
+      likeCount: 0,
+      commentCount: 0,
+      isPublic: true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.communityPosts.set(id, post);
+    return post;
+  }
+
+  async getCommunityGroups(): Promise<CommunityGroup[]> {
+    return Array.from(this.communityGroups.values());
+  }
+
+  async getCommunityGroup(id: string): Promise<CommunityGroup | undefined> {
+    return this.communityGroups.get(id);
+  }
+
+  async createCommunityGroup(name: string, description: string, category: string, createdBy: string): Promise<CommunityGroup> {
+    const id = randomUUID();
+    const now = new Date();
+    const group: CommunityGroup = {
+      id,
+      name,
+      description,
+      category,
+      isPrivate: false,
+      coverImage: null,
+      memberCount: 1,
+      tags: null,
+      location: null,
+      createdBy,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.communityGroups.set(id, group);
+    return group;
   }
 }
 
