@@ -27,6 +27,12 @@ import {
   type ContractorProfile,
   type MerchantProfile
 } from "@shared/schema";
+import { 
+  ServiceWorkflowManager, 
+  SERVICE_CONFIGS, 
+  MEMBERSHIP_BENEFITS,
+  type ServiceType 
+} from "./serviceWorkflow";
 
 // PII Sanitization Functions for Public Endpoints
 function sanitizeMemberProfile(profile: MemberProfile) {
@@ -606,15 +612,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "User not found" });
       }
       
+      let memberProfile;
       // For non-admins, check if they're creating for their own member profile
       if (currentUser.role !== "admin") {
-        const memberProfile = await storage.getMemberProfileByUserId(currentUserId);
+        memberProfile = await storage.getMemberProfileByUserId(currentUserId);
         if (!memberProfile || validatedData.memberId !== memberProfile.id) {
           return res.status(403).json({ error: "Can only create service requests for your own account" });
         }
+      } else {
+        // For admins, fetch the target member profile
+        memberProfile = await storage.getMemberProfile(validatedData.memberId);
+        if (!memberProfile) {
+          return res.status(404).json({ error: "Member profile not found" });
+        }
       }
+
+      // Use ServiceWorkflowManager for validation and processing
+      if (!validatedData.serviceType) {
+        return res.status(400).json({ error: "Service type is required" });
+      }
+
+      // Validate service request using ServiceWorkflowManager
+      const validation = ServiceWorkflowManager.validateServiceRequest(
+        validatedData.serviceType as ServiceType,
+        memberProfile.membershipTier,
+        validatedData
+      );
+
+      if (!validation.isValid) {
+        return res.status(400).json({ 
+          error: "Service request validation failed", 
+          details: validation.errors 
+        });
+      }
+
+      // Process service request with ServiceWorkflowManager enhancements
+      const processedData = ServiceWorkflowManager.processServiceRequest(
+        validatedData.serviceType as ServiceType,
+        validatedData,
+        memberProfile.membershipTier
+      );
       
-      const request = await storage.createServiceRequest(validatedData);
+      const request = await storage.createServiceRequest(processedData);
       res.status(201).json(request);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -668,6 +707,176 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Service request not found" });
       }
       res.json(request);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Service Workflow Management Routes (Enhanced with ServiceWorkflowManager)
+  
+  // Get service configurations and available service types
+  app.get("/api/services/types", async (req, res) => {
+    try {
+      const serviceTypes = Object.keys(SERVICE_CONFIGS).map(serviceType => ({
+        type: serviceType,
+        config: ServiceWorkflowManager.getServiceConfig(serviceType as ServiceType)
+      }));
+      res.json(serviceTypes);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Get membership tier benefits
+  app.get("/api/services/membership-benefits", async (req, res) => {
+    try {
+      res.json(MEMBERSHIP_BENEFITS);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Get available services for a specific membership tier
+  app.get("/api/services/available/:membershipTier", async (req, res) => {
+    try {
+      const { membershipTier } = req.params;
+      if (!Object.keys(MEMBERSHIP_BENEFITS).includes(membershipTier)) {
+        return res.status(400).json({ error: "Invalid membership tier" });
+      }
+      
+      const availableServices = ServiceWorkflowManager.getAvailableServices(membershipTier);
+      const serviceDetails = availableServices.map(serviceType => ({
+        type: serviceType,
+        config: ServiceWorkflowManager.getServiceConfig(serviceType),
+        isCurrentlyAvailable: ServiceWorkflowManager.isServiceAvailable(serviceType)
+      }));
+      
+      res.json(serviceDetails);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Check service availability (seasonal services)
+  app.get("/api/services/availability", async (req, res) => {
+    try {
+      const { serviceType } = req.query;
+      
+      if (serviceType) {
+        // Check specific service type
+        if (!Object.keys(SERVICE_CONFIGS).includes(serviceType as string)) {
+          return res.status(400).json({ error: "Invalid service type" });
+        }
+        
+        const isAvailable = ServiceWorkflowManager.isServiceAvailable(serviceType as ServiceType);
+        const config = ServiceWorkflowManager.getServiceConfig(serviceType as ServiceType);
+        
+        res.json({
+          serviceType,
+          isAvailable,
+          isSeasonalService: config.isSeasonalService,
+          seasonalWindows: config.seasonalWindows || null
+        });
+      } else {
+        // Check all service types
+        const availability = Object.keys(SERVICE_CONFIGS).map(type => {
+          const serviceType = type as ServiceType;
+          const config = ServiceWorkflowManager.getServiceConfig(serviceType);
+          return {
+            serviceType: type,
+            isAvailable: ServiceWorkflowManager.isServiceAvailable(serviceType),
+            isSeasonalService: config.isSeasonalService,
+            seasonalWindows: config.seasonalWindows || null
+          };
+        });
+        
+        res.json(availability);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Calculate service pricing
+  app.post("/api/services/pricing", isAuthenticated, async (req: any, res) => {
+    try {
+      const { serviceType, membershipTier, estimatedDuration, baseRate } = req.body;
+      
+      if (!serviceType || !membershipTier || !estimatedDuration) {
+        return res.status(400).json({ 
+          error: "serviceType, membershipTier, and estimatedDuration are required" 
+        });
+      }
+      
+      if (!Object.keys(SERVICE_CONFIGS).includes(serviceType)) {
+        return res.status(400).json({ error: "Invalid service type" });
+      }
+      
+      if (!Object.keys(MEMBERSHIP_BENEFITS).includes(membershipTier)) {
+        return res.status(400).json({ error: "Invalid membership tier" });
+      }
+      
+      const pricing = ServiceWorkflowManager.calculateServicePricing(
+        serviceType as ServiceType,
+        membershipTier,
+        parseInt(estimatedDuration),
+        baseRate ? parseFloat(baseRate) : 75
+      );
+      
+      res.json(pricing);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Validate service request before creation
+  app.post("/api/services/validate", isAuthenticated, async (req: any, res) => {
+    try {
+      const { serviceType, membershipTier, requestData } = req.body;
+      
+      if (!serviceType || !membershipTier) {
+        return res.status(400).json({ 
+          error: "serviceType and membershipTier are required" 
+        });
+      }
+      
+      if (!Object.keys(SERVICE_CONFIGS).includes(serviceType)) {
+        return res.status(400).json({ error: "Invalid service type" });
+      }
+      
+      if (!Object.keys(MEMBERSHIP_BENEFITS).includes(membershipTier)) {
+        return res.status(400).json({ error: "Invalid membership tier" });
+      }
+      
+      const validation = ServiceWorkflowManager.validateServiceRequest(
+        serviceType as ServiceType,
+        membershipTier,
+        requestData || {}
+      );
+      
+      res.json(validation);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Get service workflow configuration for a specific service type
+  app.get("/api/services/config/:serviceType", async (req, res) => {
+    try {
+      const { serviceType } = req.params;
+      
+      if (!Object.keys(SERVICE_CONFIGS).includes(serviceType)) {
+        return res.status(404).json({ error: "Service type not found" });
+      }
+      
+      const config = ServiceWorkflowManager.getServiceConfig(serviceType as ServiceType);
+      const isAvailable = ServiceWorkflowManager.isServiceAvailable(serviceType as ServiceType);
+      
+      res.json({
+        serviceType,
+        config,
+        isCurrentlyAvailable: isAvailable
+      });
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }

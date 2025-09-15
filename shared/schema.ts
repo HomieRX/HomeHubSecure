@@ -6,15 +6,28 @@ import { z } from "zod";
 // Enums for better type safety
 export const userRoleEnum = pgEnum("user_role", ["homeowner", "contractor", "merchant", "admin"]);
 export const membershipTierEnum = pgEnum("membership_tier", ["HomeHUB", "HomePRO", "HomeHERO", "HomeGURU"]);
+
+// Core HomeHub Service Types
+export const serviceTypeEnum = pgEnum("service_type", ["FixiT", "PreventiT", "HandleiT", "CheckiT", "LoyalizeiT"]);
+
+// Service Categories (keep existing for backward compatibility)
 export const serviceCategory = pgEnum("service_category", [
   "Handyman", "Dishwasher", "Oven", "Microwave", "Refrigerator", 
   "Sink Disposal", "Clothes Washer", "Clothes Dryer", "Water Heater", 
   "Basic Electrical", "Basic Irrigation", "Basic Plumbing"
 ]);
-export const serviceRequestStatusEnum = pgEnum("service_request_status", ["pending", "assigned", "in_progress", "completed", "cancelled"]);
+
+// Enhanced workflow status enums
+export const serviceRequestStatusEnum = pgEnum("service_request_status", [
+  "pending", "assigned", "in_progress", "completed", "cancelled", "on_hold", "requires_approval"
+]);
 export const workOrderStatusEnum = pgEnum("work_order_status", ["created", "in_progress", "completed", "cancelled"]);
 export const estimateStatusEnum = pgEnum("estimate_status", ["pending", "approved", "rejected", "expired"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "cancelled"]);
+
+// Payment and escrow enums
+export const paymentStatusEnum = pgEnum("payment_status", ["pending", "authorized", "captured", "failed", "refunded"]);
+export const escrowStatusEnum = pgEnum("escrow_status", ["pending", "funded", "released", "disputed", "refunded"]);
 
 // Session storage table - Required for Replit Auth
 export const sessions = pgTable(
@@ -163,23 +176,61 @@ export const homeDetails = pgTable("home_details", {
 export const serviceRequests = pgTable("service_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   memberId: varchar("member_id").notNull().references(() => memberProfiles.id),
-  category: serviceCategory("category").notNull(),
+  
+  // Service Type and Category
+  serviceType: serviceTypeEnum("service_type").notNull(), // Core HomeHub service type
+  category: serviceCategory("category").notNull(), // Specific category within service type
+  
+  // Basic Request Info
   title: text("title").notNull(),
   description: text("description").notNull(),
   urgency: text("urgency").notNull().default("normal"), // low, normal, high, emergency
-  preferredDateTime: timestamp("preferred_date_time"),
+  
+  // Location and Timing
   address: text("address").notNull(),
   city: text("city").notNull(),
   state: text("state").notNull(),
   zipCode: text("zip_code").notNull(),
-  images: jsonb("images").$type<string[]>(),
+  preferredDateTime: timestamp("preferred_date_time"),
+  
+  // Scheduling and Seasonal Controls (for PreventiT!)
+  isSeasonalService: boolean("is_seasonal_service").notNull().default(false),
+  seasonalWindow: text("seasonal_window"), // "spring", "summer", "fall", "winter"
+  slotDuration: integer("slot_duration").default(60), // minutes
+  requiredSkills: jsonb("required_skills").$type<string[]>(),
+  
+  // Workflow and Assignment
   status: serviceRequestStatusEnum("status").notNull().default("pending"),
   homeManagerId: varchar("home_manager_id").references(() => users.id),
+  assignedContractorId: varchar("assigned_contractor_id").references(() => contractorProfiles.id),
   assignedAt: timestamp("assigned_at"),
+  
+  // Time Tracking
   estimatedCompletionDate: timestamp("estimated_completion_date"),
   actualCompletionDate: timestamp("actual_completion_date"),
+  estimatedDuration: integer("estimated_duration"), // minutes
+  actualDuration: integer("actual_duration"), // minutes
+  
+  // Payment and Pricing (enhanced for HandleiT! escrow)
+  estimatedCost: decimal("estimated_cost", { precision: 8, scale: 2 }),
+  finalCost: decimal("final_cost", { precision: 8, scale: 2 }),
+  requiresEscrow: boolean("requires_escrow").notNull().default(false),
+  escrowAmount: decimal("escrow_amount", { precision: 8, scale: 2 }),
+  escrowStatus: escrowStatusEnum("escrow_status"),
+  
+  // Loyalty and Rewards (for LoyalizeiT!)
+  pointsReward: integer("points_reward").default(0),
+  membershipBenefitApplied: boolean("membership_benefit_applied").notNull().default(false),
+  loyaltyDiscountApplied: decimal("loyalty_discount_applied", { precision: 5, scale: 2 }).default("0.00"),
+  
+  // Documentation
+  images: jsonb("images").$type<string[]>(),
   memberNotes: text("member_notes"),
   internalNotes: text("internal_notes"), // for home manager use
+  completionNotes: text("completion_notes"),
+  
+  // Metadata
+  serviceMetadata: jsonb("service_metadata"), // Service-specific data
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -426,8 +477,15 @@ export const insertHomeDetailsSchema = createInsertSchema(homeDetails).omit({
 export const insertServiceRequestSchema = createInsertSchema(serviceRequests).omit({
   id: true,
   status: true,
+  assignedContractorId: true,
   assignedAt: true,
   actualCompletionDate: true,
+  actualDuration: true,
+  finalCost: true,
+  escrowStatus: true,
+  membershipBenefitApplied: true,
+  loyaltyDiscountApplied: true,
+  completionNotes: true,
   createdAt: true,
   updatedAt: true,
 });
