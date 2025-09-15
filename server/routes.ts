@@ -1306,6 +1306,558 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==========================================
+  // ADMIN ROUTES - Comprehensive Data Management
+  // ==========================================
+
+  // Admin Users Management
+  app.get("/api/admin/users", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/users", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertUserSchema.parse(req.body);
+      const user = await storage.createUser(validatedData);
+      res.status(201).json(user);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid user data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Member Profiles Management
+  app.get("/api/admin/memberProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const profiles = await storage.getAllMemberProfiles();
+      res.json(profiles);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/memberProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertMemberProfileSchema.parse(req.body);
+      const profile = await storage.createMemberProfile(validatedData);
+      res.status(201).json(profile);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid member profile data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/memberProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertMemberProfileSchema.partial().parse(req.body);
+      const profile = await storage.updateMemberProfile(req.params.id, validatedData);
+      if (!profile) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      res.json(profile);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid member profile data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Contractor Profiles Management
+  app.get("/api/admin/contractorProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const profiles = await storage.getAllContractorProfiles();
+      res.json(profiles);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/contractorProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertContractorProfileSchema.parse(req.body);
+      const profile = await storage.createContractorProfile(validatedData);
+      res.status(201).json(profile);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid contractor profile data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/contractorProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertContractorProfileSchema.partial().parse(req.body);
+      const profile = await storage.updateContractorProfile(req.params.id, validatedData);
+      if (!profile) {
+        return res.status(404).json({ error: "Contractor profile not found" });
+      }
+      res.json(profile);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid contractor profile data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Merchant Profiles Management
+  app.get("/api/admin/merchantProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const profiles = await storage.getAllMerchantProfiles();
+      res.json(profiles);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/merchantProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertMerchantProfileSchema.parse(req.body);
+      const profile = await storage.createMerchantProfile(validatedData);
+      res.status(201).json(profile);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid merchant profile data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/merchantProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertMerchantProfileSchema.partial().parse(req.body);
+      const profile = await storage.updateMerchantProfile(req.params.id, validatedData);
+      if (!profile) {
+        return res.status(404).json({ error: "Merchant profile not found" });
+      }
+      res.json(profile);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid merchant profile data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Service Requests Management
+  app.get("/api/admin/serviceRequests", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const requests = await storage.getAllServiceRequests();
+      res.json(requests);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/serviceRequests", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertServiceRequestSchema.parse(req.body);
+      const request = await storage.createServiceRequest(validatedData);
+      res.status(201).json(request);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid service request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/serviceRequests/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertServiceRequestSchema.partial().parse(req.body);
+      const request = await storage.updateServiceRequest(req.params.id, validatedData);
+      if (!request) {
+        return res.status(404).json({ error: "Service request not found" });
+      }
+      res.json(request);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid service request data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Work Orders Management
+  app.get("/api/admin/workOrders", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const orders = await storage.getAllWorkOrders();
+      res.json(orders);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/workOrders", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertWorkOrderSchema.parse(req.body);
+      const workOrder = await storage.createWorkOrder(validatedData);
+      res.status(201).json(workOrder);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid work order data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/workOrders/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertWorkOrderSchema.partial().parse(req.body);
+      const workOrder = await storage.updateWorkOrder(req.params.id, validatedData);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+      res.json(workOrder);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid work order data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Estimates Management
+  app.get("/api/admin/estimates", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const estimates = await storage.getAllEstimates();
+      res.json(estimates);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/estimates", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertEstimateSchema.parse(req.body);
+      const estimate = await storage.createEstimate(validatedData);
+      res.status(201).json(estimate);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid estimate data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/estimates/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertEstimateSchema.partial().parse(req.body);
+      const estimate = await storage.updateEstimate(req.params.id, validatedData);
+      if (!estimate) {
+        return res.status(404).json({ error: "Estimate not found" });
+      }
+      res.json(estimate);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid estimate data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Invoices Management
+  app.get("/api/admin/invoices", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const invoices = await storage.getAllInvoices();
+      res.json(invoices);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/invoices", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertInvoiceSchema.parse(req.body);
+      const invoice = await storage.createInvoice(validatedData);
+      res.status(201).json(invoice);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid invoice data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/invoices/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertInvoiceSchema.partial().parse(req.body);
+      const invoice = await storage.updateInvoice(req.params.id, validatedData);
+      if (!invoice) {
+        return res.status(404).json({ error: "Invoice not found" });
+      }
+      res.json(invoice);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid invoice data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Deals Management
+  app.get("/api/admin/deals", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deals = await storage.getAllDeals();
+      res.json(deals);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/deals", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertDealSchema.parse(req.body);
+      const deal = await storage.createDeal(validatedData);
+      res.status(201).json(deal);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid deal data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/deals/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertDealSchema.partial().parse(req.body);
+      const deal = await storage.updateDeal(req.params.id, validatedData);
+      if (!deal) {
+        return res.status(404).json({ error: "Deal not found" });
+      }
+      res.json(deal);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid deal data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Messages Management
+  app.get("/api/admin/messages", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const messages = await storage.getAllMessages();
+      res.json(messages);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/messages", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertMessageSchema.parse(req.body);
+      const message = await storage.createMessage(validatedData);
+      res.status(201).json(message);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid message data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/messages/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      // Note: Messages don't have a direct update method in storage, only markAsRead
+      const { isRead } = req.body;
+      if (typeof isRead === 'boolean' && isRead) {
+        const message = await storage.markMessageAsRead(req.params.id);
+        if (!message) {
+          return res.status(404).json({ error: "Message not found" });
+        }
+        res.json(message);
+      } else {
+        return res.status(400).json({ error: "Only isRead=true updates are supported for messages" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin Calendar Events Management
+  app.get("/api/admin/calendarEvents", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const events = await storage.getAllCalendarEvents();
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/admin/calendarEvents", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertCalendarEventSchema.parse(req.body);
+      const event = await storage.createCalendarEvent(validatedData);
+      res.status(201).json(event);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid calendar event data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/admin/calendarEvents/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validatedData = insertCalendarEventSchema.partial().parse(req.body);
+      const event = await storage.updateCalendarEvent(req.params.id, validatedData);
+      if (!event) {
+        return res.status(404).json({ error: "Calendar event not found" });
+      }
+      res.json(event);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid calendar event data", details: error.errors });
+      }
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/calendarEvents/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteCalendarEvent(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Calendar event not found" });
+      }
+      res.json({ success: true, message: "Calendar event deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // DELETE routes for all admin entities
+  app.delete("/api/admin/users/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteUser(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ success: true, message: "User deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/memberProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteMemberProfile(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      res.json({ success: true, message: "Member profile deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/contractorProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteContractorProfile(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Contractor profile not found" });
+      }
+      res.json({ success: true, message: "Contractor profile deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/merchantProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteMerchantProfile(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Merchant profile not found" });
+      }
+      res.json({ success: true, message: "Merchant profile deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/serviceRequests/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteServiceRequest(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Service request not found" });
+      }
+      res.json({ success: true, message: "Service request deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/workOrders/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteWorkOrder(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+      res.json({ success: true, message: "Work order deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/estimates/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteEstimate(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Estimate not found" });
+      }
+      res.json({ success: true, message: "Estimate deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/invoices/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteInvoice(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Invoice not found" });
+      }
+      res.json({ success: true, message: "Invoice deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/deals/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteDeal(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Deal not found" });
+      }
+      res.json({ success: true, message: "Deal deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/admin/messages/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const deleted = await storage.deleteMessage(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Message not found" });
+      }
+      res.json({ success: true, message: "Message deleted successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

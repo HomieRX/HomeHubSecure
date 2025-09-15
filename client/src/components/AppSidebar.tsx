@@ -24,10 +24,12 @@ import {
   Activity,
   UsersRound,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  Settings
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 const navigationItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
@@ -67,6 +69,13 @@ const navigationItems = [
 export function AppSidebar() {
   const [location] = useLocation();
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
+  
+  // Check if user is admin to show admin section
+  const { data: currentUser } = useQuery({
+    queryKey: ["/api/auth/user"]
+  });
+  
+  const isAdmin = (currentUser as any)?.role === "admin";
 
   const toggleMenu = (title: string) => {
     setExpandedMenus(prev => 
@@ -177,6 +186,29 @@ export function AppSidebar() {
                   </div>
                 );
               })}
+              
+              {/* Admin Section - Only visible to admin users */}
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === '/admin'}
+                    data-testid="nav-admin"
+                  >
+                    <a 
+                      href="/admin"
+                      onClick={() => handleNavigation('/admin')}
+                      className="flex items-center gap-3 w-full"
+                    >
+                      <Settings className="h-4 w-4" />
+                      <div className="flex-1">
+                        <span>Admin</span>
+                        <div className="text-xs text-muted-foreground">Platform Management</div>
+                      </div>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
