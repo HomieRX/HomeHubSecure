@@ -172,3 +172,10 @@ export interface ServiceRequestResponse {
   success: boolean;
   message: string;
 }
+
+export interface ServiceRequestsResponse {
+  requests: ServiceRequest[];
+  total: number;
+  success: boolean;
+  message: string;
+}

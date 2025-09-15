@@ -7,6 +7,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PlatformHeader } from "@/components/PlatformHeader";
 import Services from "@/pages/Services";
+import FixiT from "@/pages/FixiT";
 import ServiceRequests from "@/pages/ServiceRequests";
 import Profile from "@/pages/Profile";
 import HomeDetails from "@/pages/HomeDetails";
@@ -68,6 +69,7 @@ function Router() {
       <Route path="/" component={HomePage}/>
       <Route path="/dashboard" component={DashboardPage}/>
       <Route path="/services" component={Services}/>
+      <Route path="/fixit" component={FixiT}/>
       <Route path="/store" component={StorePage}/>
       <Route path="/service-requests" component={ServiceRequests}/>
       <Route path="/invoices" component={InvoicesPage}/>
