@@ -668,23 +668,61 @@ export class MemStorage implements IStorage {
     const request: ServiceRequest = { 
       id,
       memberId: insertRequest.memberId,
+      
+      // Service Type and Category
+      serviceType: insertRequest.serviceType,
       category: insertRequest.category,
+      
+      // Basic Request Info
       title: insertRequest.title,
       description: insertRequest.description,
       urgency: insertRequest.urgency || "normal",
-      preferredDateTime: insertRequest.preferredDateTime || null,
+      
+      // Location and Timing
       address: insertRequest.address,
       city: insertRequest.city,
       state: insertRequest.state,
       zipCode: insertRequest.zipCode,
-      images: (insertRequest.images as string[]) || null,
+      preferredDateTime: insertRequest.preferredDateTime || null,
+      
+      // Scheduling and Seasonal Controls (for PreventiT!)
+      isSeasonalService: insertRequest.isSeasonalService ?? false,
+      seasonalWindow: insertRequest.seasonalWindow || null,
+      slotDuration: insertRequest.slotDuration || 60,
+      requiredSkills: (insertRequest.requiredSkills as string[]) || null,
+      
+      // Workflow and Assignment
       status: "pending",
       homeManagerId: insertRequest.homeManagerId || null,
+      assignedContractorId: null,
       assignedAt: null,
+      
+      // Time Tracking
       estimatedCompletionDate: insertRequest.estimatedCompletionDate || null,
       actualCompletionDate: null,
+      estimatedDuration: insertRequest.estimatedDuration || null,
+      actualDuration: null,
+      
+      // Payment and Pricing (enhanced for HandleiT! escrow)
+      estimatedCost: insertRequest.estimatedCost || null,
+      finalCost: null,
+      requiresEscrow: insertRequest.requiresEscrow ?? false,
+      escrowAmount: insertRequest.escrowAmount || null,
+      escrowStatus: null,
+      
+      // Loyalty and Rewards (for LoyalizeiT!)
+      pointsReward: insertRequest.pointsReward || 0,
+      membershipBenefitApplied: false,
+      loyaltyDiscountApplied: "0.00",
+      
+      // Documentation
+      images: (insertRequest.images as string[]) || null,
       memberNotes: insertRequest.memberNotes || null,
       internalNotes: insertRequest.internalNotes || null,
+      completionNotes: null,
+      
+      // Metadata
+      serviceMetadata: insertRequest.serviceMetadata || null,
       createdAt: now,
       updatedAt: now
     };
