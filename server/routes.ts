@@ -1,6 +1,14 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { 
+  setupAuth, 
+  isAuthenticated, 
+  requireRole, 
+  requireOwnershipOrAdmin,
+  csrfProtection,
+  setCSRFToken
+} from "./replitAuth";
 import {
   insertUserSchema,
   insertMemberProfileSchema,
@@ -14,14 +22,116 @@ import {
   insertDealSchema,
   insertMessageSchema,
   insertNotificationSchema,
-  insertCalendarEventSchema
+  insertCalendarEventSchema,
+  type MemberProfile,
+  type ContractorProfile,
+  type MerchantProfile
 } from "@shared/schema";
 
+// PII Sanitization Functions for Public Endpoints
+function sanitizeMemberProfile(profile: MemberProfile) {
+  return {
+    id: profile.id,
+    nickname: profile.nickname,
+    membershipTier: profile.membershipTier,
+    loyaltyPoints: profile.loyaltyPoints,
+    bio: profile.bio,
+    location: profile.location, // General location is OK, but not full address
+    avatarUrl: profile.avatarUrl,
+    coverImageUrl: profile.coverImageUrl,
+    joinedAt: profile.joinedAt
+    // PII fields removed: firstName, lastName, email, phone, address, city, state, zipCode
+  };
+}
+
+function sanitizeContractorProfile(profile: ContractorProfile) {
+  return {
+    id: profile.id,
+    businessName: profile.businessName,
+    serviceRadius: profile.serviceRadius,
+    hourlyRate: profile.hourlyRate,
+    isVerified: profile.isVerified,
+    verifiedAt: profile.verifiedAt,
+    bio: profile.bio,
+    specialties: profile.specialties,
+    certifications: profile.certifications,
+    yearsExperience: profile.yearsExperience,
+    portfolioImages: profile.portfolioImages,
+    rating: profile.rating,
+    reviewCount: profile.reviewCount,
+    isActive: profile.isActive,
+    availability: profile.availability,
+    city: profile.city, // City is OK for general location
+    state: profile.state // State is OK for general location
+    // PII fields removed: firstName, lastName, phone, email, address, zipCode,
+    // licenseNumber, insurancePolicyNumber, bondingProvider, bondingAmount
+  };
+}
+
+function sanitizeMerchantProfile(profile: MerchantProfile) {
+  return {
+    id: profile.id,
+    businessName: profile.businessName,
+    website: profile.website,
+    businessType: profile.businessType,
+    businessDescription: profile.businessDescription,
+    operatingHours: profile.operatingHours,
+    serviceArea: profile.serviceArea,
+    specialties: profile.specialties,
+    acceptedPaymentMethods: profile.acceptedPaymentMethods,
+    businessImages: profile.businessImages,
+    logoUrl: profile.logoUrl,
+    rating: profile.rating,
+    reviewCount: profile.reviewCount,
+    isVerified: profile.isVerified,
+    verifiedAt: profile.verifiedAt,
+    isActive: profile.isActive,
+    city: profile.city, // City is OK for general location
+    state: profile.state // State is OK for general location
+    // PII fields removed: ownerName, phone, email, address, zipCode,
+    // businessLicense, taxId
+  };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  // User Management Routes
-  app.get("/api/users/:id", async (req, res) => {
+  // Setup Replit Auth
+  await setupAuth(app);
+  
+  // Apply CSRF protection middleware to all routes
+  app.use(setCSRFToken);
+  app.use(csrfProtection);
+
+  // CSRF token endpoint for frontend
+  app.get('/api/csrf-token', (req: any, res) => {
+    res.json({ csrfToken: req.session.csrfToken });
+  });
+
+  // Auth endpoint - Get current authenticated user
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.params.id);
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ error: "Failed to fetch user" });
+    }
+  });
+  // User Management Routes (PROTECTED - PII access)
+  app.get("/api/users/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetId = req.params.id;
+      
+      // Only allow access to own profile or admin access
+      if (currentUser?.id !== targetId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const user = await storage.getUser(targetId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -31,8 +141,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/users/by-username/:username", async (req, res) => {
+  app.get("/api/users/by-username/:username", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
       const user = await storage.getUserByUsername(req.params.username);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -43,23 +158,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // DEPRECATED: User creation now handled by Replit Auth
   app.post("/api/users", async (req, res) => {
-    try {
-      const validatedData = insertUserSchema.parse(req.body);
-      const user = await storage.createUser(validatedData);
-      res.status(201).json(user);
-    } catch (error: any) {
-      if (error.name === 'ZodError') {
-        return res.status(400).json({ error: "Invalid user data", details: error.errors });
-      }
-      res.status(500).json({ error: "Internal server error" });
-    }
+    res.status(410).json({ 
+      error: "Direct user creation is deprecated. Please use authentication system." 
+    });
   });
 
-  app.put("/api/users/:id", async (req, res) => {
+  app.put("/api/users/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetId = req.params.id;
+      
+      // Only allow updating own profile or admin access
+      if (currentUser?.id !== targetId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const validatedData = insertUserSchema.partial().parse(req.body);
-      const user = await storage.updateUser(req.params.id, validatedData);
+      const user = await storage.updateUser(targetId, validatedData);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -72,22 +189,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Member Profile Routes
-  app.get("/api/members/:id", async (req, res) => {
+  // Member Profile Routes (PROTECTED - PII access)
+  app.get("/api/members/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const profile = await storage.getMemberProfile(req.params.id);
       if (!profile) {
         return res.status(404).json({ error: "Member profile not found" });
       }
+
+      // Only allow access to own profile or admin access
+      if (profile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(profile);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/members/by-user/:userId", async (req, res) => {
+  app.get("/api/members/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const profile = await storage.getMemberProfileByUserId(req.params.userId);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetUserId = req.params.userId;
+      
+      // Only allow access to own profile or admin access
+      if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const profile = await storage.getMemberProfileByUserId(targetUserId);
       if (!profile) {
         return res.status(404).json({ error: "Member profile not found" });
       }
@@ -97,9 +233,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/members", async (req, res) => {
+  app.post("/api/members", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertMemberProfileSchema.parse(req.body);
+      
+      // Ensure the user is creating their own profile or is admin
+      const currentUserId = req.user.claims.sub;
+      if (validatedData.userId !== currentUserId) {
+        const currentUser = await storage.getUser(currentUserId);
+        if (!currentUser || currentUser.role !== "admin") {
+          return res.status(403).json({ error: "Can only create your own member profile" });
+        }
+      }
+      
       const profile = await storage.createMemberProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
@@ -110,7 +256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/members/:id", async (req, res) => {
+  app.put("/api/members/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const validatedData = insertMemberProfileSchema.partial().parse(req.body);
       const profile = await storage.updateMemberProfile(req.params.id, validatedData);
@@ -126,8 +272,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/members/by-tier/:tier", async (req, res) => {
+  app.get("/api/members/by-tier/:tier", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser || currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
       const members = await storage.getMembersByTier(req.params.tier);
       res.json(members);
     } catch (error) {
@@ -145,27 +296,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         location: req.query.location ? String(req.query.location) : undefined
       };
       const contractors = await storage.getContractors(filters);
-      res.json(contractors);
+      
+      // Sanitize PII for public access
+      const sanitizedContractors = contractors.map(contractor => sanitizeContractorProfile(contractor));
+      res.json(sanitizedContractors);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/contractors/:id", async (req, res) => {
+  app.get("/api/contractors/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const profile = await storage.getContractorProfile(req.params.id);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
+
+      // Only allow access to own profile or admin access
+      if (profile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(profile);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/contractors/by-user/:userId", async (req, res) => {
+  app.get("/api/contractors/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const profile = await storage.getContractorProfileByUserId(req.params.userId);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetUserId = req.params.userId;
+      
+      // Only allow access to own profile or admin access
+      if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const profile = await storage.getContractorProfileByUserId(targetUserId);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
@@ -175,9 +348,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/contractors", async (req, res) => {
+  app.post("/api/contractors", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertContractorProfileSchema.parse(req.body);
+      
+      // Ensure the user is creating their own profile or is admin
+      const currentUserId = req.user.claims.sub;
+      if (validatedData.userId !== currentUserId) {
+        const currentUser = await storage.getUser(currentUserId);
+        if (!currentUser || currentUser.role !== "admin") {
+          return res.status(403).json({ error: "Can only create your own contractor profile" });
+        }
+      }
+      
       const profile = await storage.createContractorProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
@@ -188,7 +371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/contractors/:id", async (req, res) => {
+  app.put("/api/contractors/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const validatedData = insertContractorProfileSchema.partial().parse(req.body);
       const profile = await storage.updateContractorProfile(req.params.id, validatedData);
@@ -204,8 +387,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/contractors/:id/verify", async (req, res) => {
+  app.post("/api/contractors/:id/verify", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser || currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
       const { verifiedBy } = req.body;
       if (!verifiedBy) {
         return res.status(400).json({ error: "verifiedBy is required" });
@@ -230,27 +418,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         location: req.query.location ? String(req.query.location) : undefined
       };
       const merchants = await storage.getMerchants(filters);
-      res.json(merchants);
+      
+      // Sanitize PII for public access
+      const sanitizedMerchants = merchants.map(merchant => sanitizeMerchantProfile(merchant));
+      res.json(sanitizedMerchants);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/merchants/:id", async (req, res) => {
+  app.get("/api/merchants/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const profile = await storage.getMerchantProfile(req.params.id);
       if (!profile) {
         return res.status(404).json({ error: "Merchant profile not found" });
       }
+
+      // Only allow access to own profile or admin access
+      if (profile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(profile);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/merchants/by-user/:userId", async (req, res) => {
+  app.get("/api/merchants/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const profile = await storage.getMerchantProfileByUserId(req.params.userId);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetUserId = req.params.userId;
+      
+      // Only allow access to own profile or admin access
+      if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const profile = await storage.getMerchantProfileByUserId(targetUserId);
       if (!profile) {
         return res.status(404).json({ error: "Merchant profile not found" });
       }
@@ -260,9 +470,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/merchants", async (req, res) => {
+  app.post("/api/merchants", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertMerchantProfileSchema.parse(req.body);
+      
+      // Ensure the user is creating their own profile or is admin
+      const currentUserId = req.user.claims.sub;
+      if (validatedData.userId !== currentUserId) {
+        const currentUser = await storage.getUser(currentUserId);
+        if (!currentUser || currentUser.role !== "admin") {
+          return res.status(403).json({ error: "Can only create your own merchant profile" });
+        }
+      }
+      
       const profile = await storage.createMerchantProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
@@ -273,7 +493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/merchants/:id", async (req, res) => {
+  app.put("/api/merchants/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const validatedData = insertMerchantProfileSchema.partial().parse(req.body);
       const profile = await storage.updateMerchantProfile(req.params.id, validatedData);
@@ -374,9 +594,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/service-requests", async (req, res) => {
+  app.post("/api/service-requests", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertServiceRequestSchema.parse(req.body);
+      
+      // Ensure user is creating request for their own member profile or is admin
+      const currentUserId = req.user.claims.sub;
+      const currentUser = await storage.getUser(currentUserId);
+      
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      
+      // For non-admins, check if they're creating for their own member profile
+      if (currentUser.role !== "admin") {
+        const memberProfile = await storage.getMemberProfileByUserId(currentUserId);
+        if (!memberProfile || validatedData.memberId !== memberProfile.id) {
+          return res.status(403).json({ error: "Can only create service requests for your own account" });
+        }
+      }
+      
       const request = await storage.createServiceRequest(validatedData);
       res.status(201).json(request);
     } catch (error: any) {
@@ -387,13 +624,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/service-requests/:id", async (req, res) => {
+  app.put("/api/service-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertServiceRequestSchema.partial().parse(req.body);
-      const request = await storage.updateServiceRequest(req.params.id, validatedData);
-      if (!request) {
+      const currentUserId = req.user.claims.sub;
+      const currentUser = await storage.getUser(currentUserId);
+      
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      
+      // Check ownership or admin permissions
+      const serviceRequest = await storage.getServiceRequest(req.params.id);
+      if (!serviceRequest) {
         return res.status(404).json({ error: "Service request not found" });
       }
+      
+      if (currentUser.role !== "admin") {
+        const memberProfile = await storage.getMemberProfileByUserId(currentUserId);
+        if (!memberProfile || serviceRequest.memberId !== memberProfile.id) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      }
+      
+      const request = await storage.updateServiceRequest(req.params.id, validatedData);
       res.json(request);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -403,7 +657,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/service-requests/:id/assign", async (req, res) => {
+  app.post("/api/service-requests/:id/assign", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const { homeManagerId } = req.body;
       if (!homeManagerId) {
@@ -459,7 +713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/work-orders", async (req, res) => {
+  app.post("/api/work-orders", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = insertWorkOrderSchema.parse(req.body);
       const workOrder = await storage.createWorkOrder(validatedData);
@@ -472,7 +726,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/work-orders/:id", async (req, res) => {
+  app.put("/api/work-orders/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = insertWorkOrderSchema.partial().parse(req.body);
       const workOrder = await storage.updateWorkOrder(req.params.id, validatedData);
@@ -488,7 +742,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/work-orders/:id/complete", async (req, res) => {
+  app.post("/api/work-orders/:id/complete", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const { completionNotes } = req.body;
       if (!completionNotes) {
@@ -535,7 +789,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/estimates", async (req, res) => {
+  app.post("/api/estimates", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = insertEstimateSchema.parse(req.body);
       const estimate = await storage.createEstimate(validatedData);
@@ -548,7 +802,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/estimates/:id", async (req, res) => {
+  app.put("/api/estimates/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = insertEstimateSchema.partial().parse(req.body);
       const estimate = await storage.updateEstimate(req.params.id, validatedData);
@@ -564,7 +818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/estimates/:id/approve", async (req, res) => {
+  app.post("/api/estimates/:id/approve", isAuthenticated, async (req: any, res) => {
     try {
       const estimate = await storage.approveEstimate(req.params.id);
       if (!estimate) {
@@ -576,7 +830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/estimates/:id/reject", async (req, res) => {
+  app.post("/api/estimates/:id/reject", isAuthenticated, async (req: any, res) => {
     try {
       const estimate = await storage.rejectEstimate(req.params.id);
       if (!estimate) {
@@ -619,7 +873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoices", async (req, res) => {
+  app.post("/api/invoices", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = insertInvoiceSchema.parse(req.body);
       const invoice = await storage.createInvoice(validatedData);
@@ -632,7 +886,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/invoices/:id", async (req, res) => {
+  app.put("/api/invoices/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = insertInvoiceSchema.partial().parse(req.body);
       const invoice = await storage.updateInvoice(req.params.id, validatedData);
@@ -648,7 +902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/invoices/:id/pay", async (req, res) => {
+  app.post("/api/invoices/:id/pay", isAuthenticated, async (req: any, res) => {
     try {
       const { paymentMethod, transactionId } = req.body;
       if (!paymentMethod || !transactionId) {
@@ -745,7 +999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/deals", async (req, res) => {
+  app.post("/api/deals", isAuthenticated, requireRole(["admin", "merchant"]), async (req: any, res) => {
     try {
       const validatedData = insertDealSchema.parse(req.body);
       const deal = await storage.createDeal(validatedData);
@@ -818,9 +1072,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/messages", async (req, res) => {
+  app.post("/api/messages", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertMessageSchema.parse(req.body);
+      
+      // Ensure user is sending message from their own account
+      const currentUserId = req.user.claims.sub;
+      if (validatedData.senderId !== currentUserId) {
+        const currentUser = await storage.getUser(currentUserId);
+        if (!currentUser || currentUser.role !== "admin") {
+          return res.status(403).json({ error: "Can only send messages from your own account" });
+        }
+      }
+      
       const message = await storage.createMessage(validatedData);
       res.status(201).json(message);
     } catch (error: any) {
@@ -986,11 +1250,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/community/posts", async (req, res) => {
+  app.post("/api/community/posts", isAuthenticated, async (req: any, res) => {
     try {
       const { authorId, content, images, tags } = req.body;
       if (!authorId || !content) {
         return res.status(400).json({ error: "authorId and content are required" });
+      }
+      
+      // Ensure user is creating post from their own account
+      const currentUserId = req.user.claims.sub;
+      if (authorId !== currentUserId) {
+        const currentUser = await storage.getUser(currentUserId);
+        if (!currentUser || currentUser.role !== "admin") {
+          return res.status(403).json({ error: "Can only create posts from your own account" });
+        }
       }
       const post = await storage.createCommunityPost(authorId, content, images, tags);
       res.status(201).json(post);

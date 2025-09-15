@@ -1,5 +1,5 @@
 import { 
-  type User, type InsertUser,
+  type User, type InsertUser, type UpsertUser,
   type MemberProfile, type InsertMemberProfile,
   type ContractorProfile, type InsertContractorProfile,
   type MerchantProfile, type InsertMerchantProfile,
@@ -32,8 +32,10 @@ function applyDefined<T>(base: T, updates: Partial<Record<keyof T, unknown>>): T
 
 // Comprehensive storage interface for all HomeHub business models
 export interface IStorage {
-  // User management
+  // User management (IMPORTANT: Required methods for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>; // For admin bootstrap mechanism
+  upsertUser(user: UpsertUser): Promise<User>; // Required for Replit Auth
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
@@ -45,6 +47,11 @@ export interface IStorage {
   createMemberProfile(profile: InsertMemberProfile): Promise<MemberProfile>;
   updateMemberProfile(id: string, updates: Partial<InsertMemberProfile>): Promise<MemberProfile | undefined>;
   getMembersByTier(tier: string): Promise<MemberProfile[]>;
+  
+  // Sanitized public access methods (PII-safe)
+  getPublicContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<any[]>;
+  getPublicMerchants(filters?: { isVerified?: boolean; isActive?: boolean; businessType?: string; location?: string }): Promise<any[]>;
+  getPublicMembersByTier(tier: string): Promise<any[]>;
   
   // Contractor profiles
   getContractorProfile(id: string): Promise<ContractorProfile | undefined>;
@@ -190,6 +197,10 @@ export class MemStorage implements IStorage {
     return this.users.get(id);
   }
 
+  async getAllUsers(): Promise<User[]> {
+    return Array.from(this.users.values());
+  }
+
   async getUserByUsername(username: string): Promise<User | undefined> {
     return Array.from(this.users.values()).find(user => user.username === username);
   }
@@ -203,9 +214,15 @@ export class MemStorage implements IStorage {
     const now = new Date();
     const user: User = { 
       id,
-      username: insertUser.username,
-      password: insertUser.password,
-      email: insertUser.email,
+      // Legacy fields (null - no longer accepted via API)
+      username: null,
+      password: null,
+      // New Replit Auth fields
+      email: insertUser.email || null,
+      firstName: insertUser.firstName || null,
+      lastName: insertUser.lastName || null,
+      profileImageUrl: insertUser.profileImageUrl || null,
+      // Business fields
       role: insertUser.role || "homeowner",
       isActive: insertUser.isActive ?? true,
       createdAt: now,
@@ -213,6 +230,55 @@ export class MemStorage implements IStorage {
     };
     this.users.set(id, user);
     return user;
+  }
+
+  // Required for Replit Auth - creates or updates user based on auth claims
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const now = new Date();
+    
+    // Ensure we have a valid user ID
+    if (!userData.id) {
+      throw new Error("User ID is required for upsert operation");
+    }
+    
+    // Check if user already exists
+    const existingUser = this.users.get(userData.id);
+    
+    if (existingUser) {
+      // Update existing user with new auth data, preserving existing role
+      const updatedUser: User = {
+        ...existingUser,
+        email: userData.email || existingUser.email,
+        firstName: userData.firstName || existingUser.firstName,
+        lastName: userData.lastName || existingUser.lastName,
+        profileImageUrl: userData.profileImageUrl || existingUser.profileImageUrl,
+        // Preserve role if set, or apply from userData if provided
+        role: (userData as any).role || existingUser.role,
+        updatedAt: now
+      };
+      this.users.set(userData.id, updatedUser);
+      return updatedUser;
+    } else {
+      // Create new user from auth claims
+      const newUser: User = {
+        id: userData.id,
+        // Legacy fields (null for new Replit Auth users)
+        username: null,
+        password: null,
+        // New Replit Auth fields
+        email: userData.email || null,
+        firstName: userData.firstName || null,
+        lastName: userData.lastName || null,
+        profileImageUrl: userData.profileImageUrl || null,
+        // Business fields (defaults for new users, or from userData if admin bootstrap)
+        role: (userData as any).role || "homeowner", // Default role for new users
+        isActive: true,
+        createdAt: now,
+        updatedAt: now
+      };
+      this.users.set(userData.id, newUser);
+      return newUser;
+    }
   }
 
   async updateUser(id: string, updates: Partial<InsertUser>): Promise<User | undefined> {
@@ -275,6 +341,69 @@ export class MemStorage implements IStorage {
 
   async getMembersByTier(tier: string): Promise<MemberProfile[]> {
     return Array.from(this.memberProfiles.values()).filter(profile => profile.membershipTier === tier);
+  }
+
+  // Sanitized public access methods (PII-safe)
+  async getPublicContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<any[]> {
+    const contractors = await this.getContractors(filters);
+    return contractors.map(contractor => ({
+      id: contractor.id,
+      businessName: contractor.businessName,
+      serviceRadius: contractor.serviceRadius,
+      hourlyRate: contractor.hourlyRate,
+      isVerified: contractor.isVerified,
+      verifiedAt: contractor.verifiedAt,
+      bio: contractor.bio,
+      specialties: contractor.specialties,
+      certifications: contractor.certifications,
+      yearsExperience: contractor.yearsExperience,
+      portfolioImages: contractor.portfolioImages,
+      rating: contractor.rating,
+      reviewCount: contractor.reviewCount,
+      isActive: contractor.isActive,
+      availability: contractor.availability,
+      city: contractor.city,
+      state: contractor.state
+    }));
+  }
+
+  async getPublicMerchants(filters?: { isVerified?: boolean; isActive?: boolean; businessType?: string; location?: string }): Promise<any[]> {
+    const merchants = await this.getMerchants(filters);
+    return merchants.map(merchant => ({
+      id: merchant.id,
+      businessName: merchant.businessName,
+      website: merchant.website,
+      businessType: merchant.businessType,
+      businessDescription: merchant.businessDescription,
+      operatingHours: merchant.operatingHours,
+      serviceArea: merchant.serviceArea,
+      specialties: merchant.specialties,
+      acceptedPaymentMethods: merchant.acceptedPaymentMethods,
+      businessImages: merchant.businessImages,
+      logoUrl: merchant.logoUrl,
+      rating: merchant.rating,
+      reviewCount: merchant.reviewCount,
+      isVerified: merchant.isVerified,
+      verifiedAt: merchant.verifiedAt,
+      isActive: merchant.isActive,
+      city: merchant.city,
+      state: merchant.state
+    }));
+  }
+
+  async getPublicMembersByTier(tier: string): Promise<any[]> {
+    const members = await this.getMembersByTier(tier);
+    return members.map(profile => ({
+      id: profile.id,
+      nickname: profile.nickname,
+      membershipTier: profile.membershipTier,
+      loyaltyPoints: profile.loyaltyPoints,
+      bio: profile.bio,
+      location: profile.location,
+      avatarUrl: profile.avatarUrl,
+      coverImageUrl: profile.coverImageUrl,
+      joinedAt: profile.joinedAt
+    }));
   }
 
   // Contractor profile methods
@@ -426,7 +555,19 @@ export class MemStorage implements IStorage {
   }
 
   async getMerchants(filters?: { isVerified?: boolean; isActive?: boolean; businessType?: string; location?: string }): Promise<MerchantProfile[]> {
-    return Array.from(this.merchantProfiles.values());
+    let merchants = Array.from(this.merchantProfiles.values());
+    
+    if (filters?.isVerified !== undefined) {
+      merchants = merchants.filter(m => m.isVerified === filters.isVerified);
+    }
+    if (filters?.isActive !== undefined) {
+      merchants = merchants.filter(m => m.isActive === filters.isActive);
+    }
+    if (filters?.businessType) {
+      merchants = merchants.filter(m => m.businessType === filters.businessType);
+    }
+    
+    return merchants;
   }
 
   // Home details methods
