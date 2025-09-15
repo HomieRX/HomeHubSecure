@@ -40,6 +40,7 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<InsertUser>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<boolean>;
   
   // Member profiles
   getMemberProfile(id: string): Promise<MemberProfile | undefined>;
@@ -47,6 +48,8 @@ export interface IStorage {
   createMemberProfile(profile: InsertMemberProfile): Promise<MemberProfile>;
   updateMemberProfile(id: string, updates: Partial<InsertMemberProfile>): Promise<MemberProfile | undefined>;
   getMembersByTier(tier: string): Promise<MemberProfile[]>;
+  getAllMemberProfiles(): Promise<MemberProfile[]>;
+  deleteMemberProfile(id: string): Promise<boolean>;
   
   // Sanitized public access methods (PII-safe)
   getPublicContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<any[]>;
@@ -60,6 +63,8 @@ export interface IStorage {
   updateContractorProfile(id: string, updates: Partial<InsertContractorProfile>): Promise<ContractorProfile | undefined>;
   getContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<ContractorProfile[]>;
   verifyContractor(id: string, verifiedBy: string): Promise<ContractorProfile | undefined>;
+  getAllContractorProfiles(): Promise<ContractorProfile[]>;
+  deleteContractorProfile(id: string): Promise<boolean>;
   
   // Merchant profiles
   getMerchantProfile(id: string): Promise<MerchantProfile | undefined>;
@@ -67,6 +72,8 @@ export interface IStorage {
   createMerchantProfile(profile: InsertMerchantProfile): Promise<MerchantProfile>;
   updateMerchantProfile(id: string, updates: Partial<InsertMerchantProfile>): Promise<MerchantProfile | undefined>;
   getMerchants(filters?: { isVerified?: boolean; isActive?: boolean; businessType?: string; location?: string }): Promise<MerchantProfile[]>;
+  getAllMerchantProfiles(): Promise<MerchantProfile[]>;
+  deleteMerchantProfile(id: string): Promise<boolean>;
   
   // Home details
   getHomeDetails(id: string): Promise<HomeDetails | undefined>;
@@ -81,6 +88,8 @@ export interface IStorage {
   createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest>;
   updateServiceRequest(id: string, updates: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined>;
   assignServiceRequest(id: string, homeManagerId: string): Promise<ServiceRequest | undefined>;
+  getAllServiceRequests(): Promise<ServiceRequest[]>;
+  deleteServiceRequest(id: string): Promise<boolean>;
   
   // Work orders
   getWorkOrder(id: string): Promise<WorkOrder | undefined>;
@@ -90,6 +99,8 @@ export interface IStorage {
   createWorkOrder(workOrder: InsertWorkOrder): Promise<WorkOrder>;
   updateWorkOrder(id: string, updates: Partial<InsertWorkOrder>): Promise<WorkOrder | undefined>;
   completeWorkOrder(id: string, completionNotes: string): Promise<WorkOrder | undefined>;
+  getAllWorkOrders(): Promise<WorkOrder[]>;
+  deleteWorkOrder(id: string): Promise<boolean>;
   
   // Estimates
   getEstimate(id: string): Promise<Estimate | undefined>;
@@ -99,6 +110,8 @@ export interface IStorage {
   updateEstimate(id: string, updates: Partial<InsertEstimate>): Promise<Estimate | undefined>;
   approveEstimate(id: string): Promise<Estimate | undefined>;
   rejectEstimate(id: string): Promise<Estimate | undefined>;
+  getAllEstimates(): Promise<Estimate[]>;
+  deleteEstimate(id: string): Promise<boolean>;
   
   // Invoices
   getInvoice(id: string): Promise<Invoice | undefined>;
@@ -107,6 +120,8 @@ export interface IStorage {
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: string, updates: Partial<InsertInvoice>): Promise<Invoice | undefined>;
   payInvoice(id: string, paymentMethod: string, transactionId: string): Promise<Invoice | undefined>;
+  getAllInvoices(): Promise<Invoice[]>;
+  deleteInvoice(id: string): Promise<boolean>;
   
   // Loyalty points
   getLoyaltyPointBalance(memberId: string): Promise<number>;
@@ -121,6 +136,8 @@ export interface IStorage {
   createDeal(deal: InsertDeal): Promise<Deal>;
   updateDeal(id: string, updates: Partial<InsertDeal>): Promise<Deal | undefined>;
   redeemDeal(dealId: string, memberId: string): Promise<DealRedemption>;
+  getAllDeals(): Promise<Deal[]>;
+  deleteDeal(id: string): Promise<boolean>;
   
   // Messages
   getMessage(id: string): Promise<Message | undefined>;
@@ -128,6 +145,8 @@ export interface IStorage {
   getConversation(senderId: string, receiverId: string): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
   markMessageAsRead(id: string): Promise<Message | undefined>;
+  getAllMessages(): Promise<Message[]>;
+  deleteMessage(id: string): Promise<boolean>;
   
   // Notifications
   getNotification(id: string): Promise<Notification | undefined>;
@@ -142,6 +161,7 @@ export interface IStorage {
   createCalendarEvent(event: InsertCalendarEvent): Promise<CalendarEvent>;
   updateCalendarEvent(id: string, updates: Partial<InsertCalendarEvent>): Promise<CalendarEvent | undefined>;
   deleteCalendarEvent(id: string): Promise<boolean>;
+  getAllCalendarEvents(): Promise<CalendarEvent[]>;
   
   // Community
   getCommunityPosts(limit?: number, offset?: number): Promise<CommunityPost[]>;
@@ -343,6 +363,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.memberProfiles.values()).filter(profile => profile.membershipTier === tier);
   }
 
+  async getAllMemberProfiles(): Promise<MemberProfile[]> {
+    return Array.from(this.memberProfiles.values());
+  }
+
   // Sanitized public access methods (PII-safe)
   async getPublicContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<any[]> {
     const contractors = await this.getContractors(filters);
@@ -497,6 +521,10 @@ export class MemStorage implements IStorage {
     return updatedProfile;
   }
 
+  async getAllContractorProfiles(): Promise<ContractorProfile[]> {
+    return Array.from(this.contractorProfiles.values());
+  }
+
   // Merchant profile methods
   async getMerchantProfile(id: string): Promise<MerchantProfile | undefined> {
     return this.merchantProfiles.get(id);
@@ -568,6 +596,10 @@ export class MemStorage implements IStorage {
     }
     
     return merchants;
+  }
+
+  async getAllMerchantProfiles(): Promise<MerchantProfile[]> {
+    return Array.from(this.merchantProfiles.values());
   }
 
   // Home details methods
@@ -685,6 +717,10 @@ export class MemStorage implements IStorage {
     return updatedRequest;
   }
 
+  async getAllServiceRequests(): Promise<ServiceRequest[]> {
+    return Array.from(this.serviceRequests.values());
+  }
+
   // Work order methods
   async getWorkOrder(id: string): Promise<WorkOrder | undefined> {
     return this.workOrders.get(id);
@@ -757,6 +793,10 @@ export class MemStorage implements IStorage {
     };
     this.workOrders.set(id, completedWorkOrder);
     return completedWorkOrder;
+  }
+
+  async getAllWorkOrders(): Promise<WorkOrder[]> {
+    return Array.from(this.workOrders.values());
   }
 
   // Estimate methods
@@ -843,6 +883,10 @@ export class MemStorage implements IStorage {
     return rejectedEstimate;
   }
 
+  async getAllEstimates(): Promise<Estimate[]> {
+    return Array.from(this.estimates.values());
+  }
+
   // Invoice methods
   async getInvoice(id: string): Promise<Invoice | undefined> {
     return this.invoices.get(id);
@@ -911,6 +955,10 @@ export class MemStorage implements IStorage {
     };
     this.invoices.set(id, paidInvoice);
     return paidInvoice;
+  }
+
+  async getAllInvoices(): Promise<Invoice[]> {
+    return Array.from(this.invoices.values());
   }
 
   // Loyalty point methods
@@ -1028,6 +1076,10 @@ export class MemStorage implements IStorage {
     return redemption;
   }
 
+  async getAllDeals(): Promise<Deal[]> {
+    return Array.from(this.deals.values());
+  }
+
   // Message methods
   async getMessage(id: string): Promise<Message | undefined> {
     return this.messages.get(id);
@@ -1074,6 +1126,10 @@ export class MemStorage implements IStorage {
     const readMessage: Message = { ...message, isRead: true };
     this.messages.set(id, readMessage);
     return readMessage;
+  }
+
+  async getAllMessages(): Promise<Message[]> {
+    return Array.from(this.messages.values());
   }
 
   // Notification methods
@@ -1171,6 +1227,50 @@ export class MemStorage implements IStorage {
 
   async deleteCalendarEvent(id: string): Promise<boolean> {
     return this.calendarEvents.delete(id);
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    return this.users.delete(id);
+  }
+
+  async deleteMemberProfile(id: string): Promise<boolean> {
+    return this.memberProfiles.delete(id);
+  }
+
+  async deleteContractorProfile(id: string): Promise<boolean> {
+    return this.contractorProfiles.delete(id);
+  }
+
+  async deleteMerchantProfile(id: string): Promise<boolean> {
+    return this.merchantProfiles.delete(id);
+  }
+
+  async deleteServiceRequest(id: string): Promise<boolean> {
+    return this.serviceRequests.delete(id);
+  }
+
+  async deleteWorkOrder(id: string): Promise<boolean> {
+    return this.workOrders.delete(id);
+  }
+
+  async deleteEstimate(id: string): Promise<boolean> {
+    return this.estimates.delete(id);
+  }
+
+  async deleteInvoice(id: string): Promise<boolean> {
+    return this.invoices.delete(id);
+  }
+
+  async deleteDeal(id: string): Promise<boolean> {
+    return this.deals.delete(id);
+  }
+
+  async deleteMessage(id: string): Promise<boolean> {
+    return this.messages.delete(id);
+  }
+
+  async getAllCalendarEvents(): Promise<CalendarEvent[]> {
+    return Array.from(this.calendarEvents.values());
   }
 
   // Community methods

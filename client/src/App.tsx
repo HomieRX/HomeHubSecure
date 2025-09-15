@@ -22,6 +22,7 @@ import Community from "@/pages/Community";
 import Timeline from "@/pages/Timeline";
 import Groups from "@/pages/Groups";
 import SavvySaver from "@/pages/SavvySaver";
+import Admin from "@/pages/Admin";
 import NotFound from "@/pages/not-found";
 
 function DashboardPage() {
@@ -83,6 +84,7 @@ function Router() {
       <Route path="/profile/home-details" component={HomeDetails}/>
       <Route path="/calendar" component={Calendar}/>
       <Route path="/messages" component={Messages}/>
+      <Route path="/admin" component={Admin}/>
       <Route component={NotFound} />
     </Switch>
   );
