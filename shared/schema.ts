@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, jsonb, integer, decimal, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, jsonb, integer, decimal, pgEnum, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -16,11 +16,29 @@ export const workOrderStatusEnum = pgEnum("work_order_status", ["created", "in_p
 export const estimateStatusEnum = pgEnum("estimate_status", ["pending", "approved", "rejected", "expired"]);
 export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "cancelled"]);
 
+// Session storage table - Required for Replit Auth
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
+// User storage table - Updated for Replit Auth compatibility 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-  email: text("email").notNull().unique(),
+  // Legacy fields (temporary - will be removed in step 2)
+  username: text("username").unique(),
+  password: text("password"),
+  // New Replit Auth fields
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  // Business fields (preserved)
   role: userRoleEnum("role").notNull().default("homeowner"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -365,6 +383,8 @@ export const calendarEvents = pgTable("calendar_events", {
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
+  username: true,  // Legacy field - not used in Replit Auth
+  password: true,  // SECURITY: Remove password to prevent plaintext storage
   createdAt: true,
   updatedAt: true,
 });
@@ -469,6 +489,7 @@ export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit
 // Type exports
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type UpsertUser = typeof users.$inferInsert; // Required for Replit Auth
 export type InsertMemberProfile = z.infer<typeof insertMemberProfileSchema>;
 export type MemberProfile = typeof memberProfiles.$inferSelect;
 export type InsertContractorProfile = z.infer<typeof insertContractorProfileSchema>;

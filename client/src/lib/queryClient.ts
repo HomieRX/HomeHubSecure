@@ -1,5 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// CSRF token storage
+let csrfToken: string | null = null;
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -7,14 +10,60 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Fetch CSRF token from server
+async function fetchCSRFToken(): Promise<string> {
+  if (csrfToken) {
+    return csrfToken;
+  }
+  
+  try {
+    const res = await fetch("/api/csrf-token", {
+      credentials: "include",
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      csrfToken = data.csrfToken;
+      return csrfToken || "";
+    }
+  } catch (error) {
+    console.warn("Failed to fetch CSRF token:", error);
+  }
+  
+  return "";
+}
+
+// Check if method requires CSRF token
+function requiresCSRFToken(method: string): boolean {
+  return ["POST", "PUT", "DELETE", "PATCH"].includes(method.toUpperCase());
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: Record<string, string> = {};
+  
+  if (data) {
+    headers["Content-Type"] = "application/json";
+  }
+  
+  // Add CSRF token for mutating requests
+  if (requiresCSRFToken(method)) {
+    try {
+      const token = await fetchCSRFToken();
+      if (token) {
+        headers["X-CSRF-Token"] = token;
+      }
+    } catch (error) {
+      console.warn("Failed to get CSRF token for request:", error);
+    }
+  }
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
