@@ -23,6 +23,10 @@ import {
   insertDealSchema,
   insertMessageSchema,
   insertCalendarEventSchema,
+  insertBadgeSchema,
+  insertRankSchema,
+  insertAchievementSchema,
+  insertMaintenanceItemSchema,
   type InsertUser,
   type InsertMemberProfile,
   type InsertContractorProfile,
@@ -33,7 +37,11 @@ import {
   type InsertInvoice,
   type InsertDeal,
   type InsertMessage,
-  type InsertCalendarEvent
+  type InsertCalendarEvent,
+  type InsertBadge,
+  type InsertRank,
+  type InsertAchievement,
+  type InsertMaintenanceItem
 } from "@shared/schema";
 
 type EntityType = 
@@ -47,7 +55,11 @@ type EntityType =
   | "invoices"
   | "deals" 
   | "messages" 
-  | "calendarEvents";
+  | "calendarEvents"
+  | "badges"
+  | "ranks"
+  | "achievements"
+  | "maintenanceItems";
 
 interface AdminCreateModalProps {
   isOpen: boolean;
@@ -69,6 +81,10 @@ const getSchemaForEntity = (entityType: EntityType) => {
     case "deals": return insertDealSchema;
     case "messages": return insertMessageSchema;
     case "calendarEvents": return insertCalendarEventSchema;
+    case "badges": return insertBadgeSchema;
+    case "ranks": return insertRankSchema;
+    case "achievements": return insertAchievementSchema;
+    case "maintenanceItems": return insertMaintenanceItemSchema;
     default: return insertUserSchema;
   }
 };
@@ -281,6 +297,53 @@ const getDefaultValues = (entityType: EntityType) => {
         relatedEntityId: "",
         relatedEntityType: "",
         metadata: {}
+      };
+    case "badges":
+      return {
+        name: "",
+        description: "",
+        icon: "",
+        category: "",
+        rarity: "common",
+        pointsRequired: null
+      };
+    case "ranks":
+      return {
+        name: "",
+        description: "",
+        icon: "",
+        level: 1,
+        pointsRequired: 0,
+        benefits: [],
+        color: "#6B7280"
+      };
+    case "achievements":
+      return {
+        name: "",
+        description: "",
+        icon: "",
+        category: "",
+        type: "one_time",
+        pointsAwarded: 0,
+        badgeId: null,
+        triggerCondition: {
+          type: "service_count",
+          value: 1
+        },
+        maxProgress: null
+      };
+    case "maintenanceItems":
+      return {
+        name: "",
+        description: "",
+        category: "",
+        estimatedMinutes: 30,
+        seasonalWindow: null,
+        requiredSkills: [],
+        materialsNeeded: [],
+        toolsNeeded: [],
+        safetyNotes: "",
+        instructions: ""
       };
     default:
       return {};

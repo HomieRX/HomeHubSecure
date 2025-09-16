@@ -10,6 +10,7 @@ import {
   decimal,
   pgEnum,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1080,6 +1081,7 @@ export const insertBundleNotificationSchema = createInsertSchema(bundleNotificat
   createdAt: true,
 });
 
+
 // Type exports
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -1115,6 +1117,153 @@ export type LoyaltyPointTransaction =
 export type DealRedemption = typeof dealRedemptions.$inferSelect;
 export type CommunityPost = typeof communityPosts.$inferSelect;
 export type CommunityGroup = typeof communityGroups.$inferSelect;
+
+// Gamification System Tables
+export const badges = pgTable("badges", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  icon: text("icon").notNull(), // Lucide icon name or custom icon path
+  category: text("category").notNull(), // service_completion, loyalty, community, seasonal, etc.
+  rarity: text("rarity").notNull().default("common"), // common, rare, epic, legendary
+  pointsRequired: integer("points_required"), // Points needed to earn this badge
+  isActive: boolean("is_active").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const ranks = pgTable("ranks", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  icon: text("icon").notNull(), 
+  level: integer("level").notNull().unique(), // Sequential rank levels (1, 2, 3, etc.)
+  pointsRequired: integer("points_required").notNull(), // Total points needed to reach this rank
+  benefits: jsonb("benefits").$type<string[]>(), // Array of benefits/perks
+  color: text("color").notNull().default("#6B7280"), // Hex color for rank display
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const achievements = pgTable("achievements", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  icon: text("icon").notNull(),
+  category: text("category").notNull(), // service, social, seasonal, milestone, etc.
+  type: text("type").notNull(), // one_time, recurring, progressive
+  pointsAwarded: integer("points_awarded").notNull().default(0),
+  badgeId: varchar("badge_id").references(() => badges.id), // Optional associated badge
+  triggerCondition: jsonb("trigger_condition").$type<{
+    type: string; // service_count, points_earned, days_active, etc.
+    value: number;
+    timeframe?: string; // daily, weekly, monthly, yearly
+  }>().notNull(),
+  maxProgress: integer("max_progress"), // For progressive achievements
+  isActive: boolean("is_active").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// User Achievement/Badge Progress Tables
+export const userBadges = pgTable("user_badges", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id),
+  badgeId: varchar("badge_id")
+    .notNull()
+    .references(() => badges.id),
+  earnedAt: timestamp("earned_at").notNull().defaultNow(),
+  notified: boolean("notified").notNull().default(false),
+}, (table) => {
+  return {
+    userBadgeUnique: unique().on(table.userId, table.badgeId),
+  };
+});
+
+export const userAchievements = pgTable("user_achievements", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id),
+  achievementId: varchar("achievement_id")
+    .notNull()
+    .references(() => achievements.id),
+  progress: integer("progress").notNull().default(0),
+  isCompleted: boolean("is_completed").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  lastProgressAt: timestamp("last_progress_at").notNull().defaultNow(),
+  notified: boolean("notified").notNull().default(false),
+}, (table) => {
+  return {
+    userAchievementUnique: unique().on(table.userId, table.achievementId),
+  };
+});
+
+// Gamification Insert Schemas
+export const insertBadgeSchema = createInsertSchema(badges).omit({
+  id: true,
+  displayOrder: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertRankSchema = createInsertSchema(ranks).omit({
+  id: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAchievementSchema = createInsertSchema(achievements).omit({
+  id: true,
+  displayOrder: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertUserBadgeSchema = createInsertSchema(userBadges).omit({
+  id: true,
+  earnedAt: true,
+  notified: true,
+});
+
+export const insertUserAchievementSchema = createInsertSchema(userAchievements).omit({
+  id: true,
+  progress: true,
+  isCompleted: true,
+  completedAt: true,
+  lastProgressAt: true,
+  notified: true,
+});
+
+// Gamification System Types
+export type InsertBadge = z.infer<typeof insertBadgeSchema>;
+export type Badge = typeof badges.$inferSelect;
+export type InsertRank = z.infer<typeof insertRankSchema>;
+export type Rank = typeof ranks.$inferSelect;
+export type InsertAchievement = z.infer<typeof insertAchievementSchema>;
+export type Achievement = typeof achievements.$inferSelect;
+export type InsertUserBadge = z.infer<typeof insertUserBadgeSchema>;
+export type UserBadge = typeof userBadges.$inferSelect;
+export type InsertUserAchievement = z.infer<typeof insertUserAchievementSchema>;
+export type UserAchievement = typeof userAchievements.$inferSelect;
 
 // PreventiT! Bundle System Types
 export type InsertMembershipTierLimits = z.infer<typeof insertMembershipTierLimitsSchema>;
