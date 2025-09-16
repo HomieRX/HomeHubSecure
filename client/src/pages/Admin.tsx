@@ -311,7 +311,7 @@ export default function Admin() {
 
           {/* Main Content */}
           <main className="flex-1 overflow-auto p-6 bg-muted/30">
-            <div className="max-w-7xl mx-auto">
+            <div className="w-full">
               <AdminDataTable
                 entityType={selectedEntity}
                 title={currentConfig.title}
