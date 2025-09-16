@@ -134,13 +134,17 @@ export function AppSidebar() {
                         data-testid={`nav-${item.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                       >
                         <a 
-                          href={hasSubmenu ? '#' : item.url}
+                          href={item.url}
                           onClick={(e) => {
-                            if (hasSubmenu) {
+                            if (hasSubmenu && item.title !== 'Contractors' && item.title !== 'Rewards') {
                               e.preventDefault();
                               toggleMenu(item.title);
                             } else {
                               handleNavigation(item.url);
+                              if (hasSubmenu) {
+                                // For Contractors and Rewards, also toggle submenu after navigation
+                                setTimeout(() => toggleMenu(item.title), 100);
+                              }
                             }
                           }}
                           className="flex items-center gap-3 w-full"
