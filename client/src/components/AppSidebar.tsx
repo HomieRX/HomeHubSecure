@@ -25,7 +25,8 @@ import {
   UsersRound,
   ChevronRight,
   ChevronDown,
-  Settings
+  Settings,
+  ShieldCheck
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useState } from 'react';
@@ -193,16 +194,16 @@ export function AppSidebar() {
                   <SidebarMenuButton
                     asChild
                     isActive={location === '/admin'}
-                    data-testid="nav-admin"
+                    data-testid="nav-go-to-admin"
                   >
                     <a 
                       href="/admin"
                       onClick={() => handleNavigation('/admin')}
                       className="flex items-center gap-3 w-full"
                     >
-                      <Settings className="h-4 w-4" />
+                      <ShieldCheck className="h-4 w-4" />
                       <div className="flex-1">
-                        <span>Admin</span>
+                        <span>Go to Admin</span>
                         <div className="text-xs text-muted-foreground">Platform Management</div>
                       </div>
                     </a>

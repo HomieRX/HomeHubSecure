@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import {
   Sidebar,
   SidebarContent,
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Users,
   UserPlus,
@@ -28,7 +29,8 @@ import {
   MessageSquare,
   Calendar,
   Shield,
-  ChevronRight
+  ChevronRight,
+  ArrowLeft
 } from "lucide-react";
 
 type AdminMenuItem = {
@@ -189,7 +191,20 @@ export function AdminSidebar({ selectedItem, onItemSelect }: AdminSidebarProps) 
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-border p-4">
+      <SidebarFooter className="border-t border-border p-4 space-y-4">
+        {/* Back to Platform Button */}
+        <Link href="/" className="w-full">
+          <Button 
+            variant="outline" 
+            className="w-full justify-start gap-3 hover-elevate"
+            data-testid="button-back-to-platform"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Platform
+          </Button>
+        </Link>
+
+        {/* User Information */}
         <div className="flex items-center gap-3">
           <Avatar className="h-8 w-8">
             <AvatarImage 
