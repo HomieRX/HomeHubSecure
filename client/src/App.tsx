@@ -24,6 +24,11 @@ import Community from "@/pages/Community";
 import Timeline from "@/pages/Timeline";
 import Groups from "@/pages/Groups";
 import SavvySaver from "@/pages/SavvySaver";
+import ContractorsDirectory from "@/pages/ContractorsDirectory";
+import MerchantsDirectory from "@/pages/MerchantsDirectory";
+import BadgesPage from "@/pages/BadgesPage";
+import RanksPage from "@/pages/RanksPage";
+import AchievementsPage from "@/pages/AchievementsPage";
 import Admin from "@/pages/Admin";
 import NotFound from "@/pages/not-found";
 
@@ -77,9 +82,12 @@ function Router() {
       <Route path="/maintenance" component={Maintenance}/>
       <Route path="/inspections" component={Inspections}/>
       <Route path="/rewards" component={Rewards}/>
-      <Route path="/contractors" component={Contractors}/>
+      <Route path="/badges" component={BadgesPage}/>
+      <Route path="/ranks" component={RanksPage}/>
+      <Route path="/achievements" component={AchievementsPage}/>
+      <Route path="/contractors" component={ContractorsDirectory}/>
       <Route path="/estimates" component={Estimates}/>
-      <Route path="/merchants" component={Merchants}/>
+      <Route path="/merchants" component={MerchantsDirectory}/>
       <Route path="/savvy-saver" component={SavvySaver}/>
       <Route path="/community" component={Community}/>
       <Route path="/timeline" component={Timeline}/>
