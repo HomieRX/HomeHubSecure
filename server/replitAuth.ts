@@ -43,11 +43,11 @@ export function getSession() {
       console.log("Using PostgreSQL session store");
     } catch (error) {
       console.warn("Failed to initialize PostgreSQL session store, falling back to memory:", error);
-      sessionStore = new MemoryStore(sessionTtl);
+      sessionStore = new (MemoryStore as any)(sessionTtl);
     }
   } else {
     // Use memory store for development when no DATABASE_URL
-    sessionStore = new MemoryStore(sessionTtl);
+    sessionStore = new (MemoryStore as any)(sessionTtl);
     console.log("Using in-memory session store for development");
   }
 
@@ -75,7 +75,7 @@ function updateUserSession(
   user.expires_at = user.claims?.exp;
 }
 
-async function upsertUser(
+export async function upsertUser(
   claims: any,
 ) {
   try {
