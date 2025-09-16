@@ -141,7 +141,47 @@ export async function setupAuth(app: Express) {
 
   // Skip Replit Auth setup in development if REPLIT_DOMAINS is not set
   if (!process.env.REPLIT_DOMAINS) {
-    console.log("REPLIT_DOMAINS not set, skipping Replit Auth setup (development mode)");
+    console.log("REPLIT_DOMAINS not set, setting up development auth (development mode)");
+    
+    // Development authentication routes
+    app.get("/api/login", (req, res) => {
+      // Create a mock development user session
+      const mockUser = {
+        claims: () => ({
+          sub: "dev-user-123",
+          email: "dev@homehub.com",
+          first_name: "Dev",
+          last_name: "User"
+        }),
+        expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+        access_token: "dev-token",
+        refresh_token: "dev-refresh-token"
+      };
+      
+      // Set the user in session and create user in database
+      req.login(mockUser, async (err) => {
+        if (err) {
+          console.error("Development login error:", err);
+          return res.status(500).json({ error: "Login failed" });
+        }
+        
+        // Ensure development user exists in database
+        try {
+          await upsertUser(mockUser.claims());
+        } catch (error) {
+          console.error("Error creating development user:", error);
+        }
+        
+        res.redirect("/");
+      });
+    });
+
+    app.get("/api/logout", (req, res) => {
+      req.logout(() => {
+        res.redirect("/");
+      });
+    });
+    
     return;
   }
 
