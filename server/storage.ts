@@ -12,6 +12,10 @@ import {
   type Message, type InsertMessage,
   type Notification, type InsertNotification,
   type CalendarEvent, type InsertCalendarEvent,
+  type Badge, type InsertBadge,
+  type Rank, type InsertRank,
+  type Achievement, type InsertAchievement,
+  type MaintenanceItem, type InsertMaintenanceItem,
   type LoyaltyPointTransaction,
   type DealRedemption,
   type CommunityPost,
@@ -171,6 +175,34 @@ export interface IStorage {
   getCommunityGroups(): Promise<CommunityGroup[]>;
   getCommunityGroup(id: string): Promise<CommunityGroup | undefined>;
   createCommunityGroup(name: string, description: string, category: string, createdBy: string): Promise<CommunityGroup>;
+  
+  // Gamification - Badges
+  getBadge(id: string): Promise<Badge | undefined>;
+  getAllBadges(): Promise<Badge[]>;
+  createBadge(badge: InsertBadge): Promise<Badge>;
+  updateBadge(id: string, updates: Partial<InsertBadge>): Promise<Badge | undefined>;
+  deleteBadge(id: string): Promise<boolean>;
+  
+  // Gamification - Ranks
+  getRank(id: string): Promise<Rank | undefined>;
+  getAllRanks(): Promise<Rank[]>;
+  createRank(rank: InsertRank): Promise<Rank>;
+  updateRank(id: string, updates: Partial<InsertRank>): Promise<Rank | undefined>;
+  deleteRank(id: string): Promise<boolean>;
+  
+  // Gamification - Achievements
+  getAchievement(id: string): Promise<Achievement | undefined>;
+  getAllAchievements(): Promise<Achievement[]>;
+  createAchievement(achievement: InsertAchievement): Promise<Achievement>;
+  updateAchievement(id: string, updates: Partial<InsertAchievement>): Promise<Achievement | undefined>;
+  deleteAchievement(id: string): Promise<boolean>;
+  
+  // Maintenance Items
+  getMaintenanceItem(id: string): Promise<MaintenanceItem | undefined>;
+  getAllMaintenanceItems(): Promise<MaintenanceItem[]>;
+  createMaintenanceItem(item: InsertMaintenanceItem): Promise<MaintenanceItem>;
+  updateMaintenanceItem(id: string, updates: Partial<InsertMaintenanceItem>): Promise<MaintenanceItem | undefined>;
+  deleteMaintenanceItem(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -191,6 +223,10 @@ export class MemStorage implements IStorage {
   private calendarEvents: Map<string, CalendarEvent>;
   private communityPosts: Map<string, CommunityPost>;
   private communityGroups: Map<string, CommunityGroup>;
+  private badges: Map<string, Badge>;
+  private ranks: Map<string, Rank>;
+  private achievements: Map<string, Achievement>;
+  private maintenanceItems: Map<string, MaintenanceItem>;
 
   constructor() {
     this.users = new Map();
@@ -210,6 +246,10 @@ export class MemStorage implements IStorage {
     this.calendarEvents = new Map();
     this.communityPosts = new Map();
     this.communityGroups = new Map();
+    this.badges = new Map();
+    this.ranks = new Map();
+    this.achievements = new Map();
+    this.maintenanceItems = new Map();
   }
 
   // User management methods
@@ -1374,6 +1414,178 @@ export class MemStorage implements IStorage {
     };
     this.communityGroups.set(id, group);
     return group;
+  }
+
+  // Gamification - Badges methods
+  async getBadge(id: string): Promise<Badge | undefined> {
+    return this.badges.get(id);
+  }
+
+  async getAllBadges(): Promise<Badge[]> {
+    return Array.from(this.badges.values());
+  }
+
+  async createBadge(insertBadge: InsertBadge): Promise<Badge> {
+    const id = randomUUID();
+    const now = new Date();
+    const badge: Badge = {
+      id,
+      name: insertBadge.name,
+      description: insertBadge.description,
+      icon: insertBadge.icon,
+      category: insertBadge.category,
+      rarity: insertBadge.rarity,
+      pointsRequired: insertBadge.pointsRequired,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.badges.set(id, badge);
+    return badge;
+  }
+
+  async updateBadge(id: string, updates: Partial<InsertBadge>): Promise<Badge | undefined> {
+    const badge = this.badges.get(id);
+    if (!badge) return undefined;
+    
+    const updatedBadge = applyDefined(badge, updates);
+    updatedBadge.updatedAt = new Date();
+    this.badges.set(id, updatedBadge);
+    return updatedBadge;
+  }
+
+  async deleteBadge(id: string): Promise<boolean> {
+    return this.badges.delete(id);
+  }
+
+  // Gamification - Ranks methods
+  async getRank(id: string): Promise<Rank | undefined> {
+    return this.ranks.get(id);
+  }
+
+  async getAllRanks(): Promise<Rank[]> {
+    return Array.from(this.ranks.values()).sort((a, b) => a.level - b.level);
+  }
+
+  async createRank(insertRank: InsertRank): Promise<Rank> {
+    const id = randomUUID();
+    const now = new Date();
+    const rank: Rank = {
+      id,
+      name: insertRank.name,
+      description: insertRank.description,
+      icon: insertRank.icon,
+      level: insertRank.level,
+      pointsRequired: insertRank.pointsRequired,
+      benefits: insertRank.benefits,
+      color: insertRank.color,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.ranks.set(id, rank);
+    return rank;
+  }
+
+  async updateRank(id: string, updates: Partial<InsertRank>): Promise<Rank | undefined> {
+    const rank = this.ranks.get(id);
+    if (!rank) return undefined;
+    
+    const updatedRank = applyDefined(rank, updates);
+    updatedRank.updatedAt = new Date();
+    this.ranks.set(id, updatedRank);
+    return updatedRank;
+  }
+
+  async deleteRank(id: string): Promise<boolean> {
+    return this.ranks.delete(id);
+  }
+
+  // Gamification - Achievements methods
+  async getAchievement(id: string): Promise<Achievement | undefined> {
+    return this.achievements.get(id);
+  }
+
+  async getAllAchievements(): Promise<Achievement[]> {
+    return Array.from(this.achievements.values());
+  }
+
+  async createAchievement(insertAchievement: InsertAchievement): Promise<Achievement> {
+    const id = randomUUID();
+    const now = new Date();
+    const achievement: Achievement = {
+      id,
+      name: insertAchievement.name,
+      description: insertAchievement.description,
+      icon: insertAchievement.icon,
+      category: insertAchievement.category,
+      type: insertAchievement.type,
+      pointsAwarded: insertAchievement.pointsAwarded,
+      badgeId: insertAchievement.badgeId,
+      triggerCondition: insertAchievement.triggerCondition,
+      maxProgress: insertAchievement.maxProgress,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.achievements.set(id, achievement);
+    return achievement;
+  }
+
+  async updateAchievement(id: string, updates: Partial<InsertAchievement>): Promise<Achievement | undefined> {
+    const achievement = this.achievements.get(id);
+    if (!achievement) return undefined;
+    
+    const updatedAchievement = applyDefined(achievement, updates);
+    updatedAchievement.updatedAt = new Date();
+    this.achievements.set(id, updatedAchievement);
+    return updatedAchievement;
+  }
+
+  async deleteAchievement(id: string): Promise<boolean> {
+    return this.achievements.delete(id);
+  }
+
+  // Maintenance Items methods
+  async getMaintenanceItem(id: string): Promise<MaintenanceItem | undefined> {
+    return this.maintenanceItems.get(id);
+  }
+
+  async getAllMaintenanceItems(): Promise<MaintenanceItem[]> {
+    return Array.from(this.maintenanceItems.values());
+  }
+
+  async createMaintenanceItem(insertItem: InsertMaintenanceItem): Promise<MaintenanceItem> {
+    const id = randomUUID();
+    const now = new Date();
+    const item: MaintenanceItem = {
+      id,
+      name: insertItem.name,
+      description: insertItem.description,
+      category: insertItem.category,
+      estimatedMinutes: insertItem.estimatedMinutes,
+      seasonalWindow: insertItem.seasonalWindow,
+      requiredSkills: insertItem.requiredSkills,
+      materialsNeeded: insertItem.materialsNeeded,
+      toolsNeeded: insertItem.toolsNeeded,
+      safetyNotes: insertItem.safetyNotes,
+      instructions: insertItem.instructions,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.maintenanceItems.set(id, item);
+    return item;
+  }
+
+  async updateMaintenanceItem(id: string, updates: Partial<InsertMaintenanceItem>): Promise<MaintenanceItem | undefined> {
+    const item = this.maintenanceItems.get(id);
+    if (!item) return undefined;
+    
+    const updatedItem = applyDefined(item, updates);
+    updatedItem.updatedAt = new Date();
+    this.maintenanceItems.set(id, updatedItem);
+    return updatedItem;
+  }
+
+  async deleteMaintenanceItem(id: string): Promise<boolean> {
+    return this.maintenanceItems.delete(id);
   }
 }
 
