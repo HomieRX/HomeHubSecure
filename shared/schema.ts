@@ -99,6 +99,38 @@ export const escrowStatusEnum = pgEnum("escrow_status", [
   "refunded",
 ]);
 
+// PreventiT! Bundle System Enums
+export const bundleStatusEnum = pgEnum("bundle_status", [
+  "draft",
+  "submitted",
+  "edit_requested",
+  "edit_window_open",
+  "scheduled",
+  "member_confirmed",
+  "member_unconfirmed",
+  "in_progress",
+  "completed",
+  "cancelled",
+  "deferred",
+]);
+
+export const editRequestStatusEnum = pgEnum("edit_request_status", [
+  "pending",
+  "approved", 
+  "denied",
+]);
+
+export const notificationChannelEnum = pgEnum("notification_channel", [
+  "email",
+  "sms", 
+  "in_app",
+]);
+
+export const seasonalWindowEnum = pgEnum("seasonal_window", [
+  "Feb-Mar",
+  "Jul-Aug",
+]);
+
 // Session storage table - Required for Replit Auth
 export const sessions = pgTable(
   "sessions",
@@ -599,6 +631,265 @@ export const calendarEvents = pgTable("calendar_events", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// PreventiT! Bundle System Tables
+
+export const membershipTierLimits = pgTable("membership_tier_limits", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  membershipTier: membershipTierEnum("membership_tier").notNull(),
+  serviceType: serviceTypeEnum("service_type").notNull(),
+  itemsAllowed: integer("items_allowed").notNull(),
+  cyclePeriodDays: integer("cycle_period_days").notNull().default(90), // quarterly
+  upgradePrice: decimal("upgrade_price", { precision: 8, scale: 2 }),
+  addOnPricePerItem: decimal("add_on_price_per_item", { precision: 8, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Unique constraint: one limit config per tier/service type combination
+  uniqueTierServiceType: index("unique_tier_service_type").on(table.membershipTier, table.serviceType),
+}));
+
+export const maintenanceItems = pgTable("maintenance_items", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  category: text("category").notNull(), // HVAC, Plumbing, Electrical, etc.
+  estimatedMinutes: integer("estimated_minutes").notNull(),
+  seasonalWindow: seasonalWindowEnum("seasonal_window"),
+  requiredSkills: jsonb("required_skills").$type<string[]>(),
+  materialsNeeded: jsonb("materials_needed").$type<string[]>(),
+  toolsNeeded: jsonb("tools_needed").$type<string[]>(),
+  safetyNotes: text("safety_notes"),
+  instructions: text("instructions"),
+  displayOrder: integer("display_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const maintenanceBundles = pgTable("maintenance_bundles", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  memberId: varchar("member_id")
+    .notNull()
+    .references(() => memberProfiles.id),
+  
+  // Bundle details
+  bundleName: text("bundle_name"),
+  itemCount: integer("item_count").notNull().default(0),
+  estimatedTotalMinutes: integer("estimated_total_minutes").notNull().default(0),
+  
+  // Address and scheduling
+  serviceAddress: text("service_address").notNull(),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  zipCode: text("zip_code").notNull(),
+  
+  // Preferred dates (up to 3)
+  preferredDate1: timestamp("preferred_date_1"),
+  preferredTimeWindow1: text("preferred_time_window_1"), // AM/PM or specific 2-hour slot
+  preferredDate2: timestamp("preferred_date_2"),
+  preferredTimeWindow2: text("preferred_time_window_2"),
+  preferredDate3: timestamp("preferred_date_3"),
+  preferredTimeWindow3: text("preferred_time_window_3"),
+  
+  // Scheduling and confirmation
+  scheduledDate: timestamp("scheduled_date"),
+  scheduledTimeWindow: text("scheduled_time_window"),
+  confirmedByMember: boolean("confirmed_by_member").notNull().default(false),
+  confirmationDeadline: timestamp("confirmation_deadline"),
+  
+  // State and workflow
+  status: bundleStatusEnum("status").notNull().default("draft"),
+  
+  // Notes and metadata
+  memberNotes: text("member_notes"),
+  adminNotes: text("admin_notes"),
+  internalNotes: text("internal_notes"),
+  
+  // Tier enforcement
+  membershipTierAtSubmission: membershipTierEnum("membership_tier_at_submission"),
+  itemsAllowedAtSubmission: integer("items_allowed_at_submission"),
+  isAddOnPurchase: boolean("is_add_on_purchase").notNull().default(false),
+  addOnAmount: decimal("add_on_amount", { precision: 8, scale: 2 }),
+  
+  // Audit fields
+  submittedAt: timestamp("submitted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Performance indexes for common queries
+  memberIdStatusIndex: index("bundles_member_status_idx").on(table.memberId, table.status),
+  scheduledDateIndex: index("bundles_scheduled_date_idx").on(table.scheduledDate),
+  // Address binding constraint - one active bundle per member/address combination
+  addressBindingIndex: index("bundles_address_binding_idx").on(table.memberId, table.serviceAddress, table.status),
+}));
+
+export const bundleItems = pgTable("bundle_items", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bundleId: varchar("bundle_id")
+    .notNull()
+    .references(() => maintenanceBundles.id, { onDelete: "cascade" }),
+  maintenanceItemId: varchar("maintenance_item_id")
+    .notNull()
+    .references(() => maintenanceItems.id),
+  
+  // Override fields (if different from catalog item)
+  customInstructions: text("custom_instructions"),
+  priorityOrder: integer("priority_order").notNull().default(0),
+  
+  // Completion tracking
+  isCompleted: boolean("is_completed").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  completionNotes: text("completion_notes"),
+  actualMinutes: integer("actual_minutes"),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  // Unique constraint: no duplicate items per bundle
+  uniqueBundleItemIndex: index("unique_bundle_item_idx").on(table.bundleId, table.maintenanceItemId),
+  // Performance index for bundle queries
+  bundleIdIndex: index("bundle_items_bundle_id_idx").on(table.bundleId),
+}));
+
+export const bundleWorkOrders = pgTable("bundle_work_orders", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bundleId: varchar("bundle_id")
+    .notNull()
+    .references(() => maintenanceBundles.id, { onDelete: "cascade" }),
+  
+  // Assignment
+  technicianId: varchar("technician_id").references(() => contractorProfiles.id),
+  routeBatchId: varchar("route_batch_id"), // For day-of routing optimization
+  
+  // Operational status
+  operationalStatus: text("operational_status").notNull().default("created"), // created, en_route, in_progress, completed, unable_to_complete
+  
+  // Day-of tracking
+  arrivalTime: timestamp("arrival_time"),
+  startTime: timestamp("start_time"),
+  completionTime: timestamp("completion_time"),
+  
+  // Unable to complete tracking
+  unableToCompleteReason: text("unable_to_complete_reason"),
+  reasonCode: text("reason_code"), // no_access, weather, parts, etc.
+  
+  // Final completion
+  completionNotes: text("completion_notes"),
+  followUpRequired: boolean("follow_up_required").notNull().default(false),
+  followUpNotes: text("follow_up_notes"),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Performance indexes for work order queries
+  bundleIdIndex: index("bundle_work_orders_bundle_id_idx").on(table.bundleId),
+  technicianIdIndex: index("bundle_work_orders_technician_id_idx").on(table.technicianId),
+  routeBatchIndex: index("bundle_work_orders_route_batch_idx").on(table.routeBatchId),
+  operationalStatusIndex: index("bundle_work_orders_status_idx").on(table.operationalStatus),
+}));
+
+export const editRequests = pgTable("edit_requests", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bundleId: varchar("bundle_id")
+    .notNull()
+    .references(() => maintenanceBundles.id),
+  memberId: varchar("member_id")
+    .notNull()
+    .references(() => memberProfiles.id),
+  
+  // Request details
+  reason: text("reason").notNull(), // Free-text reason from member
+  requestedChanges: text("requested_changes"), // What specifically they want to change
+  
+  // Admin response
+  status: editRequestStatusEnum("status").notNull().default("pending"),
+  adminResponse: text("admin_response"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  
+  // Edit window management
+  editWindowFields: jsonb("edit_window_fields").$type<string[]>(), // Which fields were unlocked
+  editWindowExpiresAt: timestamp("edit_window_expires_at"),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const bundleAuditLogs = pgTable("bundle_audit_logs", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bundleId: varchar("bundle_id")
+    .notNull()
+    .references(() => maintenanceBundles.id),
+  
+  // State transition tracking
+  fromStatus: bundleStatusEnum("from_status"),
+  toStatus: bundleStatusEnum("to_status").notNull(),
+  
+  // Actor information
+  actorId: varchar("actor_id")
+    .notNull()
+    .references(() => users.id),
+  actorType: text("actor_type").notNull(), // member, admin, system
+  
+  // Change details
+  reason: text("reason"),
+  changedFields: jsonb("changed_fields"), // Track which fields changed
+  oldValues: jsonb("old_values"), // Previous values
+  newValues: jsonb("new_values"), // New values
+  
+  // Metadata
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const bundleNotifications = pgTable("bundle_notifications", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bundleId: varchar("bundle_id")
+    .notNull()
+    .references(() => maintenanceBundles.id),
+  memberId: varchar("member_id")
+    .notNull()
+    .references(() => memberProfiles.id),
+  
+  // Notification details
+  notificationType: text("notification_type").notNull(), // submission_received, scheduled, confirmation_required, etc.
+  channel: notificationChannelEnum("channel").notNull(),
+  
+  // Content
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  templateData: jsonb("template_data"), // Data used to populate template
+  
+  // Delivery tracking
+  sentAt: timestamp("sent_at"),
+  deliveredAt: timestamp("delivered_at"),
+  openedAt: timestamp("opened_at"),
+  clickedAt: timestamp("clicked_at"),
+  
+  // Status and retries
+  deliveryStatus: text("delivery_status").notNull().default("pending"), // pending, sent, delivered, failed
+  deliveryError: text("delivery_error"),
+  retryCount: integer("retry_count").notNull().default(0),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -722,6 +1013,73 @@ export const insertCalendarEventSchema = createInsertSchema(
   updatedAt: true,
 });
 
+// PreventiT! Bundle System Insert Schemas
+export const insertMembershipTierLimitsSchema = createInsertSchema(membershipTierLimits).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMaintenanceItemSchema = createInsertSchema(maintenanceItems).omit({
+  id: true,
+  displayOrder: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMaintenanceBundleSchema = createInsertSchema(maintenanceBundles).omit({
+  id: true,
+  itemCount: true,
+  estimatedTotalMinutes: true,
+  status: true,
+  confirmedByMember: true,
+  isAddOnPurchase: true,
+  submittedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertBundleItemSchema = createInsertSchema(bundleItems).omit({
+  id: true,
+  priorityOrder: true,
+  isCompleted: true,
+  completedAt: true,
+  createdAt: true,
+});
+
+export const insertBundleWorkOrderSchema = createInsertSchema(bundleWorkOrders).omit({
+  id: true,
+  operationalStatus: true,
+  followUpRequired: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertEditRequestSchema = createInsertSchema(editRequests).omit({
+  id: true,
+  status: true,
+  reviewedBy: true,
+  reviewedAt: true,
+  createdAt: true,
+});
+
+export const insertBundleAuditLogSchema = createInsertSchema(bundleAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertBundleNotificationSchema = createInsertSchema(bundleNotifications).omit({
+  id: true,
+  sentAt: true,
+  deliveredAt: true,
+  openedAt: true,
+  clickedAt: true,
+  deliveryStatus: true,
+  retryCount: true,
+  createdAt: true,
+});
+
 // Type exports
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -757,3 +1115,21 @@ export type LoyaltyPointTransaction =
 export type DealRedemption = typeof dealRedemptions.$inferSelect;
 export type CommunityPost = typeof communityPosts.$inferSelect;
 export type CommunityGroup = typeof communityGroups.$inferSelect;
+
+// PreventiT! Bundle System Types
+export type InsertMembershipTierLimits = z.infer<typeof insertMembershipTierLimitsSchema>;
+export type MembershipTierLimits = typeof membershipTierLimits.$inferSelect;
+export type InsertMaintenanceItem = z.infer<typeof insertMaintenanceItemSchema>;
+export type MaintenanceItem = typeof maintenanceItems.$inferSelect;
+export type InsertMaintenanceBundle = z.infer<typeof insertMaintenanceBundleSchema>;
+export type MaintenanceBundle = typeof maintenanceBundles.$inferSelect;
+export type InsertBundleItem = z.infer<typeof insertBundleItemSchema>;
+export type BundleItem = typeof bundleItems.$inferSelect;
+export type InsertBundleWorkOrder = z.infer<typeof insertBundleWorkOrderSchema>;
+export type BundleWorkOrder = typeof bundleWorkOrders.$inferSelect;
+export type InsertEditRequest = z.infer<typeof insertEditRequestSchema>;
+export type EditRequest = typeof editRequests.$inferSelect;
+export type InsertBundleAuditLog = z.infer<typeof insertBundleAuditLogSchema>;
+export type BundleAuditLog = typeof bundleAuditLogs.$inferSelect;
+export type InsertBundleNotification = z.infer<typeof insertBundleNotificationSchema>;
+export type BundleNotification = typeof bundleNotifications.$inferSelect;
