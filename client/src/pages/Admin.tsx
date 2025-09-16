@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/AdminSidebar";
 import { AdminDataTable } from "@/components/AdminDataTable";
+import AdminCreateModal from "@/components/AdminCreateModal";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
@@ -208,7 +209,7 @@ const entityConfigs: Record<EntityType, EntityConfig> = {
 
 export default function Admin() {
   const [selectedEntity, setSelectedEntity] = useState<EntityType>("users");
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const { toast } = useToast();
 
@@ -245,12 +246,16 @@ export default function Admin() {
 
   const handleItemSelect = (itemId: string) => {
     setSelectedEntity(itemId as EntityType);
-    setShowCreateForm(false);
+    setShowCreateModal(false);
     setEditingItem(null);
   };
 
   const handleCreate = () => {
-    setShowCreateForm(true);
+    setShowCreateModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowCreateModal(false);
   };
 
   const handleEdit = (item: any) => {
@@ -329,6 +334,14 @@ export default function Admin() {
           </main>
         </div>
       </div>
+
+      {/* Create Modal */}
+      <AdminCreateModal
+        isOpen={showCreateModal}
+        onClose={handleCloseModal}
+        entityType={selectedEntity}
+        title={currentConfig.title}
+      />
     </SidebarProvider>
   );
 }
