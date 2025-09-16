@@ -65,8 +65,8 @@ export default function ServiceRequests() {
 
   // Fetch member profile for authenticated user
   const { data: memberProfile, isLoading: loadingMemberProfile } = useQuery<MemberProfile>({
-    queryKey: ["/api/members/by-user", currentUser?.id || 'no-user'],
-    enabled: !!currentUser?.id,
+    queryKey: ["/api/members/by-user", (currentUser as any)?.id || 'no-user'],
+    enabled: !!(currentUser as any)?.id,
     retry: false,
   });
 

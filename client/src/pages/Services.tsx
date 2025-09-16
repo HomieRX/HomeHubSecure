@@ -90,8 +90,8 @@ export default function Services() {
 
   // Fetch member profile for authenticated user
   const { data: memberProfile, isLoading: loadingMemberProfile, error: memberError } = useQuery({
-    queryKey: ["/api/members/by-user", currentUser?.id],
-    enabled: !!currentUser?.id,
+    queryKey: ["/api/members/by-user", (currentUser as any)?.id],
+    enabled: !!(currentUser as any)?.id,
     retry: false,
   });
 
@@ -111,7 +111,7 @@ export default function Services() {
   });
 
   // Get current user's membership tier
-  const userMembershipTier: MembershipTier = memberProfile?.membershipTier || "HomeHUB";
+  const userMembershipTier: MembershipTier = (memberProfile as any)?.membershipTier || "HomeHUB";
 
   // Fetch available services for user's membership tier
   const { data: availableServices } = useQuery<AvailableServicesResponse>({
@@ -153,13 +153,13 @@ export default function Services() {
   // Service booking mutation with real member data and pricing
   const bookServiceMutation = useMutation<ServiceRequestResponse, Error, ServiceBookingForm>({
     mutationFn: async (data: ServiceBookingForm) => {
-      if (!memberProfile?.id) {
+      if (!(memberProfile as any)?.id) {
         throw new Error("Member profile not found. Please try logging in again.");
       }
       
       const requestData: CreateServiceRequestData = {
         ...data,
-        memberId: memberProfile.id,
+        memberId: (memberProfile as any).id,
       };
       
       const response = await fetch("/api/service-requests", {
@@ -180,7 +180,7 @@ export default function Services() {
       });
       setIsBookingDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/service-requests", "by-member", memberProfile?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests", "by-member", (memberProfile as any)?.id] });
     },
     onError: (error: any) => {
       toast({

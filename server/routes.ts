@@ -7,7 +7,8 @@ import {
   requireRole, 
   requireOwnershipOrAdmin,
   csrfProtection,
-  setCSRFToken
+  setCSRFToken,
+  upsertUser
 } from "./replitAuth";
 import {
   insertUserSchema,
@@ -141,7 +142,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      let user = await storage.getUser(userId);
+      
+      // If user doesn't exist, create them from the authenticated claims
+      if (!user) {
+        console.log(`Creating new user from auth claims: ${userId}`);
+        const claims = req.user.claims;
+        await upsertUser(claims);
+        user = await storage.getUser(userId);
+      }
+      
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
