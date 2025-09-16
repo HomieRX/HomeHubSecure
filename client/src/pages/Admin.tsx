@@ -21,7 +21,11 @@ import {
   Gift,
   MessageSquare,
   Calendar,
-  Menu
+  Menu,
+  Award,
+  Crown,
+  Trophy,
+  Cog
 } from "lucide-react";
 
 type EntityType = 
@@ -35,7 +39,11 @@ type EntityType =
   | "invoices"
   | "deals" 
   | "messages" 
-  | "calendarEvents";
+  | "calendarEvents"
+  | "badges"
+  | "ranks"
+  | "achievements"
+  | "maintenanceItems";
 
 interface EntityConfig {
   id: EntityType;
@@ -203,6 +211,62 @@ const entityConfigs: Record<EntityType, EntityConfig> = {
       { key: "location", label: "Location", sortable: true },
       { key: "reminderMinutes", label: "Reminder", sortable: true, render: (value: number) => `${value} min` },
       { key: "isRecurring", label: "Recurring", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Yes" : "No"}</Badge> }
+    ]
+  },
+  badges: {
+    id: "badges",
+    title: "Badges",
+    description: "Manage gamification badges and achievements",
+    icon: Award,
+    columns: [
+      { key: "name", label: "Name", sortable: true },
+      { key: "description", label: "Description", sortable: true },
+      { key: "category", label: "Category", sortable: true, render: (value: string) => <Badge variant="outline">{value}</Badge> },
+      { key: "rarity", label: "Rarity", sortable: true, render: (value: string) => <Badge variant={value === "legendary" ? "default" : value === "epic" ? "secondary" : "outline"}>{value}</Badge> },
+      { key: "pointsRequired", label: "Points Required", sortable: true },
+      { key: "isActive", label: "Status", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Active" : "Inactive"}</Badge> }
+    ]
+  },
+  ranks: {
+    id: "ranks",
+    title: "Ranks",
+    description: "Manage user ranking system and levels",
+    icon: Crown,
+    columns: [
+      { key: "name", label: "Name", sortable: true },
+      { key: "level", label: "Level", sortable: true },
+      { key: "pointsRequired", label: "Points Required", sortable: true },
+      { key: "description", label: "Description", sortable: true },
+      { key: "color", label: "Color", sortable: true, render: (value: string) => <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full" style={{backgroundColor: value}}></div>{value}</div> },
+      { key: "isActive", label: "Status", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Active" : "Inactive"}</Badge> }
+    ]
+  },
+  achievements: {
+    id: "achievements",
+    title: "Achievements",
+    description: "Manage achievement system and progress tracking",
+    icon: Trophy,
+    columns: [
+      { key: "name", label: "Name", sortable: true },
+      { key: "description", label: "Description", sortable: true },
+      { key: "category", label: "Category", sortable: true, render: (value: string) => <Badge variant="outline">{value}</Badge> },
+      { key: "type", label: "Type", sortable: true, render: (value: string) => <Badge variant="secondary">{value}</Badge> },
+      { key: "pointsAwarded", label: "Points Awarded", sortable: true },
+      { key: "isActive", label: "Status", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Active" : "Inactive"}</Badge> }
+    ]
+  },
+  maintenanceItems: {
+    id: "maintenanceItems",
+    title: "PreventiT! Maintenance Items",
+    description: "Manage maintenance catalog and task definitions",
+    icon: Cog,
+    columns: [
+      { key: "name", label: "Name", sortable: true },
+      { key: "description", label: "Description", sortable: true },
+      { key: "category", label: "Category", sortable: true, render: (value: string) => <Badge variant="outline">{value}</Badge> },
+      { key: "estimatedMinutes", label: "Est. Time (min)", sortable: true },
+      { key: "seasonalWindow", label: "Season", sortable: true, render: (value: string) => value ? <Badge variant="secondary">{value}</Badge> : "Any" },
+      { key: "isActive", label: "Status", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Active" : "Inactive"}</Badge> }
     ]
   }
 };

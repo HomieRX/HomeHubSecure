@@ -30,7 +30,11 @@ import {
   Calendar,
   Shield,
   ChevronRight,
-  ArrowLeft
+  ArrowLeft,
+  Award,
+  Crown,
+  Trophy,
+  Cog
 } from "lucide-react";
 
 type AdminMenuItem = {
@@ -107,6 +111,30 @@ const adminMenuItems: AdminMenuItem[] = [
     title: "Calendar Events",
     icon: Calendar,
     description: "Scheduling and event management"
+  },
+  {
+    id: "badges",
+    title: "Badges",
+    icon: Award,
+    description: "Manage gamification badges and rewards"
+  },
+  {
+    id: "ranks",
+    title: "Ranks",
+    icon: Crown,
+    description: "Manage user ranking system and levels"
+  },
+  {
+    id: "achievements",
+    title: "Achievements",
+    icon: Trophy,
+    description: "Manage achievement system and progress tracking"
+  },
+  {
+    id: "maintenanceItems",
+    title: "PreventiT! Maintenance Items",
+    icon: Cog,
+    description: "Manage maintenance catalog and task definitions"
   }
 ];
 
