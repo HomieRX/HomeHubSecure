@@ -1,0 +1,101 @@
+User Profiles (community features only)
+	Basic Info
+		Display Name
+		Username / nickname
+		Profile Picture
+		Cover Photo / Banner
+		Bio / About Me
+		Location (City, State, optional)
+	Community Engagement
+		Friends / Connections
+		Groups Joined
+		Badges Earned
+		Posts / Activity Feed
+	Member Profiles/Personal Details (all service tiers)
+		Full Name
+		Address(es): Primary Residence, Secondary (Vacation, Rental, etc.)
+		Contact Info: Phone, Email
+		Emergency Contact
+		Preferred Communication Method (Email, Text, Call)
+	Membership Details
+		Membership Tier (HomePRO, HomeHERO, HomeGURU, etc.)
+		Join Date
+		Renewal Date
+		Payment Method(s) on File
+		Points / Rewards Balance (from LoyalizeiT!)
+		Membership Status (Active, Suspended, Cancelled)
+	Home Data
+		Home Type (Single-family, Condo, Rental, etc.)
+		Year Built
+		Square Footage
+		Bedrooms / Bathrooms
+		Lot Size
+		Utilities: Water Source, Power, Gas
+		Systems: HVAC Type, Irrigation Type, Security, etc.
+	Service History
+		Past FixiT! Jobs (with work orders, receipts)
+		PreventiT! Bundles (active and past)
+		HandleiT! Requests & Estimates
+		CheckiT! Inspection Reports
+		HomeVitals Scores / Reports
+	Community Overlay
+		Groups Joined
+		Badges Earned
+		Activity Feed (service-related + community)
+
+Merchant Profiles
+	Business Details
+		Business Name
+		Logo
+		Cover Image
+		About / Description
+		Business Type (taxonomy: Contractor, Retail, Restaurant, etc.)
+		Address(es)
+		Contact Info: Phone, Email, Website
+		Social Media Links
+		Hours of Operation
+		License / Certification # (if relevant)
+		Insurance / Bonded Status
+		Offers & Deals
+		Active Coupons (Savvy Saver)
+		Past Coupons (Archive)
+		Coupon Redemption Stats
+		QR Codes / Unique Links for Coupons
+	Community Overlay
+		Groups 
+		Activity Feed 
+	Engagement & Reporting
+		Reviews / Ratings
+		Customer Engagement Stats (views, clicks, redemptions)
+		HomeRX Partnership Start Date
+		Contract Status (Active, Pending, Suspended)
+
+Contractor Profiles
+	Business & Legal Info
+		Contractor Name / Company Name
+		Profile Image / Logo
+		License # & Type (linked to taxonomy: General, Electrical, Plumbing, etc.)
+		License Expiration Date
+		Bonding & Insurance Details
+		Years in Business
+		Service Area (ZIP code coverage)
+		Contact Info
+		Business Address
+		Phone
+		Email
+		Website
+		Social Media Links
+	Work Profile
+		Specialties (taxonomy: Carpentry, Drywall, Concrete, etc.)
+		Certifications (e.g., EPA Lead-Safe, OSHA)
+		Portfolio / Gallery (photos, videos)
+		Reviews & Ratings
+		Average Response Time
+	Service Engagement
+		Quotes Submitted (HandleiT! history)
+		Jobs Awarded
+		Jobs Completed (with work orders attached)
+	Community Overlay
+		Groups (Contractor Networks, Skill Groups)
+		Activity Feed 
+
