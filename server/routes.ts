@@ -27,6 +27,31 @@ import {
   type ContractorProfile,
   type MerchantProfile
 } from "@shared/schema";
+import {
+  // Enhanced validation schemas
+  UserProfileCreateSchema,
+  UserProfileUpdateSchema,
+  MemberProfileCreateSchema,
+  MemberProfileUpdateSchema,
+  ContractorProfileCreateSchema,
+  ContractorProfileUpdateSchema,
+  MerchantProfileCreateSchema,
+  MerchantProfileUpdateSchema,
+  ServiceRequestCreateSchema,
+  ServiceRequestUpdateSchema,
+  WorkOrderCreateSchema,
+  WorkOrderUpdateSchema,
+  EstimateCreateSchema,
+  EstimateUpdateSchema,
+  InvoiceCreateSchema,
+  InvoiceUpdateSchema,
+  MessageCreateSchema,
+  MessageUpdateSchema,
+  CalendarEventCreateSchema,
+  CalendarEventUpdateSchema,
+  DealCreateSchema,
+  DealUpdateSchema
+} from "@shared/types";
 import { 
   ServiceWorkflowManager, 
   SERVICE_CONFIGS, 
@@ -181,7 +206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const validatedData = insertUserSchema.partial().parse(req.body);
+      const validatedData = UserProfileUpdateSchema.parse(req.body);
       const user = await storage.updateUser(targetId, validatedData);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -241,7 +266,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/members", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertMemberProfileSchema.parse(req.body);
+      const validatedData = MemberProfileCreateSchema.parse(req.body);
       
       // Ensure the user is creating their own profile or is admin
       const currentUserId = req.user.claims.sub;
@@ -264,7 +289,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/members/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
-      const validatedData = insertMemberProfileSchema.partial().parse(req.body);
+      const validatedData = MemberProfileUpdateSchema.parse(req.body);
       const profile = await storage.updateMemberProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Member profile not found" });
@@ -356,7 +381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/contractors", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertContractorProfileSchema.parse(req.body);
+      const validatedData = ContractorProfileCreateSchema.parse(req.body);
       
       // Ensure the user is creating their own profile or is admin
       const currentUserId = req.user.claims.sub;
@@ -379,7 +404,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/contractors/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
-      const validatedData = insertContractorProfileSchema.partial().parse(req.body);
+      const validatedData = ContractorProfileUpdateSchema.parse(req.body);
       const profile = await storage.updateContractorProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
@@ -478,7 +503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/merchants", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertMerchantProfileSchema.parse(req.body);
+      const validatedData = MerchantProfileCreateSchema.parse(req.body);
       
       // Ensure the user is creating their own profile or is admin
       const currentUserId = req.user.claims.sub;
@@ -501,7 +526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/merchants/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
-      const validatedData = insertMerchantProfileSchema.partial().parse(req.body);
+      const validatedData = MerchantProfileUpdateSchema.parse(req.body);
       const profile = await storage.updateMerchantProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Merchant profile not found" });
@@ -540,7 +565,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/home-details", async (req, res) => {
+  app.post("/api/home-details", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertHomeDetailsSchema.parse(req.body);
       const details = await storage.createHomeDetails(validatedData);
@@ -553,7 +578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/home-details/:id", async (req, res) => {
+  app.put("/api/home-details/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const validatedData = insertHomeDetailsSchema.partial().parse(req.body);
       const details = await storage.updateHomeDetails(req.params.id, validatedData);
@@ -602,7 +627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/service-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertServiceRequestSchema.parse(req.body);
+      const validatedData = ServiceRequestCreateSchema.parse(req.body);
       
       // Ensure user is creating request for their own member profile or is admin
       const currentUserId = req.user.claims.sub;
@@ -924,7 +949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/work-orders", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
-      const validatedData = insertWorkOrderSchema.parse(req.body);
+      const validatedData = WorkOrderCreateSchema.parse(req.body);
       const workOrder = await storage.createWorkOrder(validatedData);
       res.status(201).json(workOrder);
     } catch (error: any) {
@@ -1000,7 +1025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/estimates", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
-      const validatedData = insertEstimateSchema.parse(req.body);
+      const validatedData = EstimateCreateSchema.parse(req.body);
       const estimate = await storage.createEstimate(validatedData);
       res.status(201).json(estimate);
     } catch (error: any) {
@@ -1013,7 +1038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/estimates/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
-      const validatedData = insertEstimateSchema.partial().parse(req.body);
+      const validatedData = EstimateUpdateSchema.parse(req.body);
       const estimate = await storage.updateEstimate(req.params.id, validatedData);
       if (!estimate) {
         return res.status(404).json({ error: "Estimate not found" });
@@ -1084,7 +1109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/invoices", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
-      const validatedData = insertInvoiceSchema.parse(req.body);
+      const validatedData = InvoiceCreateSchema.parse(req.body);
       const invoice = await storage.createInvoice(validatedData);
       res.status(201).json(invoice);
     } catch (error: any) {
@@ -1097,7 +1122,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/invoices/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
-      const validatedData = insertInvoiceSchema.partial().parse(req.body);
+      const validatedData = InvoiceUpdateSchema.parse(req.body);
       const invoice = await storage.updateInvoice(req.params.id, validatedData);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
@@ -1146,7 +1171,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/loyalty-points/add", async (req, res) => {
+  app.post("/api/loyalty-points/add", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { memberId, points, description, referenceId, referenceType } = req.body;
       if (!memberId || !points || !description) {
@@ -1159,7 +1184,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/loyalty-points/spend", async (req, res) => {
+  app.post("/api/loyalty-points/spend", isAuthenticated, async (req: any, res) => {
     try {
       const { memberId, points, description, referenceId, referenceType } = req.body;
       if (!memberId || !points || !description) {
@@ -1210,7 +1235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/deals", isAuthenticated, requireRole(["admin", "merchant"]), async (req: any, res) => {
     try {
-      const validatedData = insertDealSchema.parse(req.body);
+      const validatedData = DealCreateSchema.parse(req.body);
       const deal = await storage.createDeal(validatedData);
       res.status(201).json(deal);
     } catch (error: any) {
@@ -1221,9 +1246,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/deals/:id", async (req, res) => {
+  app.put("/api/deals/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
-      const validatedData = insertDealSchema.partial().parse(req.body);
+      const validatedData = DealUpdateSchema.parse(req.body);
       const deal = await storage.updateDeal(req.params.id, validatedData);
       if (!deal) {
         return res.status(404).json({ error: "Deal not found" });
@@ -1237,7 +1262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/deals/:dealId/redeem", async (req, res) => {
+  app.post("/api/deals/:dealId/redeem", isAuthenticated, async (req: any, res) => {
     try {
       const { memberId } = req.body;
       if (!memberId) {
@@ -1283,7 +1308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/messages", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertMessageSchema.parse(req.body);
+      const validatedData = MessageCreateSchema.parse(req.body);
       
       // Ensure user is sending message from their own account
       const currentUserId = req.user.claims.sub;
@@ -1304,7 +1329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/messages/:id/read", async (req, res) => {
+  app.put("/api/messages/:id/read", isAuthenticated, async (req: any, res) => {
     try {
       const message = await storage.markMessageAsRead(req.params.id);
       if (!message) {
@@ -1338,7 +1363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/notifications", async (req, res) => {
+  app.post("/api/notifications", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertNotificationSchema.parse(req.body);
       const notification = await storage.createNotification(validatedData);
@@ -1351,7 +1376,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/notifications/:id/read", async (req, res) => {
+  app.put("/api/notifications/:id/read", isAuthenticated, async (req: any, res) => {
     try {
       const notification = await storage.markNotificationAsRead(req.params.id);
       if (!notification) {
@@ -1363,7 +1388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/notifications/read-all/:userId", async (req, res) => {
+  app.put("/api/notifications/read-all/:userId", isAuthenticated, async (req: any, res) => {
     try {
       await storage.markAllNotificationsAsRead(req.params.userId);
       res.json({ success: true });
@@ -1373,7 +1398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Calendar Event Routes
-  app.get("/api/calendar-events/:id", async (req, res) => {
+  app.get("/api/calendar-events/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const event = await storage.getCalendarEvent(req.params.id);
       if (!event) {
@@ -1385,8 +1410,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/calendar-events/by-user/:userId", async (req, res) => {
+  app.get("/api/calendar-events/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUserId = req.user.claims.sub;
+      const targetUserId = req.params.userId;
+      
+      // Only allow access to own calendar or admin access
+      if (currentUserId !== targetUserId) {
+        const currentUser = await storage.getUser(currentUserId);
+        if (!currentUser || currentUser.role !== "admin") {
+          return res.status(403).json({ error: "Access denied - can only view your own calendar" });
+        }
+      }
+      
       const events = await storage.getCalendarEventsByUser(req.params.userId);
       res.json(events);
     } catch (error) {
@@ -1394,9 +1430,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/calendar-events", async (req, res) => {
+  app.post("/api/calendar-events", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertCalendarEventSchema.parse(req.body);
+      const validatedData = CalendarEventCreateSchema.parse(req.body);
+      
+      // Ensure user is creating event for themselves or is admin
+      const currentUserId = req.user.claims.sub;
+      if (validatedData.userId !== currentUserId) {
+        const currentUser = await storage.getUser(currentUserId);
+        if (!currentUser || currentUser.role !== "admin") {
+          return res.status(403).json({ error: "Can only create calendar events for yourself" });
+        }
+      }
+      
       const event = await storage.createCalendarEvent(validatedData);
       res.status(201).json(event);
     } catch (error: any) {
@@ -1407,9 +1453,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/calendar-events/:id", async (req, res) => {
+  app.put("/api/calendar-events/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
-      const validatedData = insertCalendarEventSchema.partial().parse(req.body);
+      const validatedData = CalendarEventUpdateSchema.parse(req.body);
       const event = await storage.updateCalendarEvent(req.params.id, validatedData);
       if (!event) {
         return res.status(404).json({ error: "Calendar event not found" });
@@ -1423,7 +1469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/calendar-events/:id", async (req, res) => {
+  app.delete("/api/calendar-events/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const deleted = await storage.deleteCalendarEvent(req.params.id);
       if (!deleted) {
@@ -1502,7 +1548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/community/groups", async (req, res) => {
+  app.post("/api/community/groups", isAuthenticated, async (req: any, res) => {
     try {
       const { name, description, category, createdBy } = req.body;
       if (!name || !description || !category || !createdBy) {
@@ -1827,7 +1873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/deals", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const validatedData = insertDealSchema.parse(req.body);
+      const validatedData = DealCreateSchema.parse(req.body);
       const deal = await storage.createDeal(validatedData);
       res.status(201).json(deal);
     } catch (error: any) {
@@ -1840,7 +1886,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/deals/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const validatedData = insertDealSchema.partial().parse(req.body);
+      const validatedData = DealUpdateSchema.parse(req.body);
       const deal = await storage.updateDeal(req.params.id, validatedData);
       if (!deal) {
         return res.status(404).json({ error: "Deal not found" });
@@ -1866,7 +1912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/messages", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const validatedData = insertMessageSchema.parse(req.body);
+      const validatedData = MessageCreateSchema.parse(req.body);
       const message = await storage.createMessage(validatedData);
       res.status(201).json(message);
     } catch (error: any) {
@@ -1907,7 +1953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/calendarEvents", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const validatedData = insertCalendarEventSchema.parse(req.body);
+      const validatedData = CalendarEventCreateSchema.parse(req.body);
       const event = await storage.createCalendarEvent(validatedData);
       res.status(201).json(event);
     } catch (error: any) {
@@ -1920,7 +1966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/calendarEvents/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const validatedData = insertCalendarEventSchema.partial().parse(req.body);
+      const validatedData = CalendarEventUpdateSchema.parse(req.body);
       const event = await storage.updateCalendarEvent(req.params.id, validatedData);
       if (!event) {
         return res.status(404).json({ error: "Calendar event not found" });
