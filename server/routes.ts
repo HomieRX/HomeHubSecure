@@ -1594,6 +1594,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ADMIN ROUTES - Comprehensive Data Management
   // ==========================================
 
+  // Admin Counts API
+  app.get("/api/admin/counts", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const [
+        users, memberProfiles, contractorProfiles, merchantProfiles,
+        serviceRequests, workOrders, estimates, invoices, deals, 
+        messages, calendarEvents, badges, ranks, achievements, maintenanceItems
+      ] = await Promise.all([
+        storage.getAllUsers(),
+        storage.getAllMemberProfiles(),
+        storage.getAllContractorProfiles(),
+        storage.getAllMerchantProfiles(),
+        storage.getAllServiceRequests(),
+        storage.getAllWorkOrders(),
+        storage.getAllEstimates(),
+        storage.getAllInvoices(),
+        storage.getAllDeals(),
+        storage.getAllMessages(),
+        storage.getAllCalendarEvents(),
+        storage.getAllBadges(),
+        storage.getAllRanks(),
+        storage.getAllAchievements(),
+        storage.getAllMaintenanceItems()
+      ]);
+
+      const counts = {
+        users: users.length,
+        memberProfiles: memberProfiles.length,
+        contractorProfiles: contractorProfiles.length,
+        merchantProfiles: merchantProfiles.length,
+        serviceRequests: serviceRequests.length,
+        workOrders: workOrders.length,
+        estimates: estimates.length,
+        invoices: invoices.length,
+        deals: deals.length,
+        messages: messages.length,
+        calendarEvents: calendarEvents.length,
+        badges: badges.length,
+        ranks: ranks.length,
+        achievements: achievements.length,
+        maintenanceItems: maintenanceItems.length
+      };
+
+      res.json(counts);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Admin Users Management
   app.get("/api/admin/users", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
