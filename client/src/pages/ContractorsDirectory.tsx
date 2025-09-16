@@ -63,10 +63,10 @@ export default function ContractorsDirectory() {
         contractor.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         contractor.specialties?.some(s => s.toLowerCase().includes(searchTerm.toLowerCase()));
 
-      const matchesSpecialty = !selectedSpecialty || 
+      const matchesSpecialty = !selectedSpecialty || selectedSpecialty === "all" || 
         contractor.specialties?.includes(selectedSpecialty);
 
-      const matchesLocation = !selectedLocation ||
+      const matchesLocation = !selectedLocation || selectedLocation === "all" ||
         contractor.location?.toLowerCase().includes(selectedLocation.toLowerCase()) ||
         contractor.zipCode?.includes(selectedLocation);
 
@@ -88,8 +88,8 @@ export default function ContractorsDirectory() {
     });
 
   // Get unique specialties and locations for filters
-  const specialties = [...new Set(contractors.flatMap((c: Contractor) => c.specialties || []))];
-  const locations = [...new Set(contractors.map((c: Contractor) => c.location).filter(Boolean))];
+  const specialties = Array.from(new Set(contractors.flatMap((c: Contractor) => c.specialties || [])));
+  const locations = Array.from(new Set(contractors.map((c: Contractor) => c.location).filter(Boolean)));
 
   return (
     <div className="space-y-6 p-6">
@@ -129,7 +129,7 @@ export default function ContractorsDirectory() {
                 <SelectValue placeholder="All Specialties" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Specialties</SelectItem>
+                <SelectItem value="all">All Specialties</SelectItem>
                 {specialties.map((specialty) => (
                   <SelectItem key={specialty} value={specialty}>
                     {specialty}

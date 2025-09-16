@@ -20,7 +20,6 @@ import {
   Lock,
   Check,
   Filter,
-  Progress,
   Calendar
 } from "lucide-react";
 
@@ -124,15 +123,15 @@ export default function BadgesPage() {
       badge.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       badge.requirements.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesCategory = !selectedCategory || badge.category === selectedCategory;
-    const matchesRarity = !selectedRarity || badge.rarity === selectedRarity;
+    const matchesCategory = !selectedCategory || selectedCategory === "all" || badge.category === selectedCategory;
+    const matchesRarity = !selectedRarity || selectedRarity === "all" || badge.rarity === selectedRarity;
     const matchesEarned = !showEarnedOnly || badge.isEarned;
 
     return matchesSearch && matchesCategory && matchesRarity && matchesEarned;
   });
 
   // Get categories and rarities for filters
-  const categories = [...new Set(mockBadges.map(b => b.category))];
+  const categories = Array.from(new Set(mockBadges.map(b => b.category)));
   const rarities = ["common", "uncommon", "rare", "epic", "legendary"];
 
   const getRarityColor = (rarity: string) => {
@@ -206,7 +205,7 @@ export default function BadgesPage() {
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
+                <SelectItem value="all">All Categories</SelectItem>
                 {categories.map((category) => (
                   <SelectItem key={category} value={category}>
                     {category}
@@ -221,7 +220,7 @@ export default function BadgesPage() {
                 <SelectValue placeholder="All Rarities" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Rarities</SelectItem>
+                <SelectItem value="all">All Rarities</SelectItem>
                 {rarities.map((rarity) => (
                   <SelectItem key={rarity} value={rarity}>
                     {rarity.charAt(0).toUpperCase() + rarity.slice(1)}
