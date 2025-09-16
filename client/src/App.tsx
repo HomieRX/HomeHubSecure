@@ -88,7 +88,6 @@ function Router() {
       <Route path="/profile/home-details" component={HomeDetails}/>
       <Route path="/calendar" component={Calendar}/>
       <Route path="/messages" component={Messages}/>
-      <Route path="/admin" component={Admin}/>
       <Route component={NotFound} />
     </Switch>
   );
@@ -104,17 +103,25 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full bg-background">
-            <AppSidebar />
-            <div className="flex flex-col flex-1 overflow-hidden">
-              <PlatformHeader />
-              <main className="flex-1 overflow-auto bg-background">
-                <Router />
-              </main>
-            </div>
-          </div>
-        </SidebarProvider>
+        <Switch>
+          {/* Admin route with its own layout */}
+          <Route path="/admin" component={Admin} />
+          
+          {/* All other routes use the standard layout */}
+          <Route>
+            <SidebarProvider style={style as React.CSSProperties}>
+              <div className="flex h-screen w-full bg-background">
+                <AppSidebar />
+                <div className="flex flex-col flex-1 overflow-hidden">
+                  <PlatformHeader />
+                  <main className="flex-1 overflow-auto bg-background">
+                    <Router />
+                  </main>
+                </div>
+              </div>
+            </SidebarProvider>
+          </Route>
+        </Switch>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
