@@ -163,8 +163,8 @@ export default function AchievementsPage() {
       achievement.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       achievement.description.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesCategory = !selectedCategory || achievement.category === selectedCategory;
-    const matchesDifficulty = !selectedDifficulty || achievement.difficulty === selectedDifficulty;
+    const matchesCategory = !selectedCategory || selectedCategory === "all" || achievement.category === selectedCategory;
+    const matchesDifficulty = !selectedDifficulty || selectedDifficulty === "all" || achievement.difficulty === selectedDifficulty;
     const matchesEarned = !showEarnedOnly || achievement.isEarned;
 
     return matchesSearch && matchesCategory && matchesDifficulty && matchesEarned;
@@ -258,7 +258,7 @@ export default function AchievementsPage() {
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
+                <SelectItem value="all">All Categories</SelectItem>
                 {categories.map((category) => (
                   <SelectItem key={category} value={category}>
                     {category}
@@ -273,7 +273,7 @@ export default function AchievementsPage() {
                 <SelectValue placeholder="All Difficulties" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Difficulties</SelectItem>
+                <SelectItem value="all">All Difficulties</SelectItem>
                 {difficulties.map((difficulty) => (
                   <SelectItem key={difficulty} value={difficulty}>
                     {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}

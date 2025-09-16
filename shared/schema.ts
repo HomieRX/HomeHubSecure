@@ -1,33 +1,103 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, jsonb, integer, decimal, pgEnum, index } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  timestamp,
+  boolean,
+  jsonb,
+  integer,
+  decimal,
+  pgEnum,
+  index,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums for better type safety
-export const userRoleEnum = pgEnum("user_role", ["homeowner", "contractor", "merchant", "admin"]);
-export const membershipTierEnum = pgEnum("membership_tier", ["HomeHUB", "HomePRO", "HomeHERO", "HomeGURU"]);
+export const userRoleEnum = pgEnum("user_role", [
+  "homeowner",
+  "contractor",
+  "merchant",
+  "admin",
+]);
+export const membershipTierEnum = pgEnum("membership_tier", [
+  "HomeHUB",
+  "HomePRO",
+  "HomeHERO",
+  "HomeGURU",
+]);
 
 // Core HomeHub Service Types
-export const serviceTypeEnum = pgEnum("service_type", ["FixiT", "PreventiT", "HandleiT", "CheckiT", "LoyalizeiT"]);
+export const serviceTypeEnum = pgEnum("service_type", [
+  "FixiT",
+  "PreventiT",
+  "HandleiT",
+  "CheckiT",
+  "LoyalizeiT",
+]);
 
 // Service Categories (keep existing for backward compatibility)
 export const serviceCategory = pgEnum("service_category", [
-  "Handyman", "Dishwasher", "Oven", "Microwave", "Refrigerator", 
-  "Sink Disposal", "Clothes Washer", "Clothes Dryer", "Water Heater", 
-  "Basic Electrical", "Basic Irrigation", "Basic Plumbing"
+  "Handyman",
+  "Dishwasher",
+  "Oven",
+  "Microwave",
+  "Refrigerator",
+  "Sink Disposal",
+  "Clothes Washer",
+  "Clothes Dryer",
+  "Water Heater",
+  "Basic Electrical",
+  "Basic Irrigation",
+  "Basic Plumbing",
 ]);
 
 // Enhanced workflow status enums
 export const serviceRequestStatusEnum = pgEnum("service_request_status", [
-  "pending", "assigned", "in_progress", "completed", "cancelled", "on_hold", "requires_approval"
+  "pending",
+  "assigned",
+  "in_progress",
+  "completed",
+  "cancelled",
+  "on_hold",
+  "requires_approval",
 ]);
-export const workOrderStatusEnum = pgEnum("work_order_status", ["created", "in_progress", "completed", "cancelled"]);
-export const estimateStatusEnum = pgEnum("estimate_status", ["pending", "approved", "rejected", "expired"]);
-export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "cancelled"]);
+export const workOrderStatusEnum = pgEnum("work_order_status", [
+  "created",
+  "in_progress",
+  "completed",
+  "cancelled",
+]);
+export const estimateStatusEnum = pgEnum("estimate_status", [
+  "pending",
+  "approved",
+  "rejected",
+  "expired",
+]);
+export const invoiceStatusEnum = pgEnum("invoice_status", [
+  "draft",
+  "sent",
+  "paid",
+  "overdue",
+  "cancelled",
+]);
 
 // Payment and escrow enums
-export const paymentStatusEnum = pgEnum("payment_status", ["pending", "authorized", "captured", "failed", "refunded"]);
-export const escrowStatusEnum = pgEnum("escrow_status", ["pending", "funded", "released", "disputed", "refunded"]);
+export const paymentStatusEnum = pgEnum("payment_status", [
+  "pending",
+  "authorized",
+  "captured",
+  "failed",
+  "refunded",
+]);
+export const escrowStatusEnum = pgEnum("escrow_status", [
+  "pending",
+  "funded",
+  "released",
+  "disputed",
+  "refunded",
+]);
 
 // Session storage table - Required for Replit Auth
 export const sessions = pgTable(
@@ -40,9 +110,11 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table - Updated for Replit Auth compatibility 
+// User storage table - Updated for Replit Auth compatibility
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   // Legacy fields (temporary - will be removed in step 2)
   username: text("username").unique(),
   password: text("password"),
@@ -59,8 +131,12 @@ export const users = pgTable("users", {
 });
 
 export const memberProfiles = pgTable("member_profiles", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   nickname: text("nickname").notNull(),
   firstName: text("first_name"),
   lastName: text("last_name"),
@@ -68,7 +144,9 @@ export const memberProfiles = pgTable("member_profiles", {
   phone: text("phone"),
   avatarUrl: text("avatar_url"),
   coverImageUrl: text("cover_image_url"),
-  membershipTier: membershipTierEnum("membership_tier").notNull().default("HomeHUB"),
+  membershipTier: membershipTierEnum("membership_tier")
+    .notNull()
+    .default("HomeHUB"),
   loyaltyPoints: integer("loyalty_points").notNull().default(0),
   bio: text("bio"),
   location: text("location"),
@@ -82,8 +160,12 @@ export const memberProfiles = pgTable("member_profiles", {
 });
 
 export const contractorProfiles = pgTable("contractor_profiles", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   businessName: text("business_name").notNull(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
@@ -120,8 +202,12 @@ export const contractorProfiles = pgTable("contractor_profiles", {
 });
 
 export const merchantProfiles = pgTable("merchant_profiles", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   businessName: text("business_name").notNull(),
   ownerName: text("owner_name").notNull(),
   phone: text("phone").notNull(),
@@ -152,8 +238,12 @@ export const merchantProfiles = pgTable("merchant_profiles", {
 });
 
 export const homeDetails = pgTable("home_details", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  profileId: varchar("profile_id").notNull().references(() => memberProfiles.id, { onDelete: "cascade" }),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  profileId: varchar("profile_id")
+    .notNull()
+    .references(() => memberProfiles.id, { onDelete: "cascade" }),
   propertyType: text("property_type"),
   yearBuilt: varchar("year_built"),
   squareFootage: varchar("square_footage"),
@@ -174,61 +264,72 @@ export const homeDetails = pgTable("home_details", {
 });
 
 export const serviceRequests = pgTable("service_requests", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  memberId: varchar("member_id").notNull().references(() => memberProfiles.id),
-  
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  memberId: varchar("member_id")
+    .notNull()
+    .references(() => memberProfiles.id),
+
   // Service Type and Category
   serviceType: serviceTypeEnum("service_type").notNull(), // Core HomeHub service type
   category: serviceCategory("category").notNull(), // Specific category within service type
-  
+
   // Basic Request Info
   title: text("title").notNull(),
   description: text("description").notNull(),
   urgency: text("urgency").notNull().default("normal"), // low, normal, high, emergency
-  
+
   // Location and Timing
   address: text("address").notNull(),
   city: text("city").notNull(),
   state: text("state").notNull(),
   zipCode: text("zip_code").notNull(),
   preferredDateTime: timestamp("preferred_date_time"),
-  
+
   // Scheduling and Seasonal Controls (for PreventiT!)
   isSeasonalService: boolean("is_seasonal_service").notNull().default(false),
   seasonalWindow: text("seasonal_window"), // "spring", "summer", "fall", "winter"
   slotDuration: integer("slot_duration").default(60), // minutes
   requiredSkills: jsonb("required_skills").$type<string[]>(),
-  
+
   // Workflow and Assignment
   status: serviceRequestStatusEnum("status").notNull().default("pending"),
   homeManagerId: varchar("home_manager_id").references(() => users.id),
-  assignedContractorId: varchar("assigned_contractor_id").references(() => contractorProfiles.id),
+  assignedContractorId: varchar("assigned_contractor_id").references(
+    () => contractorProfiles.id,
+  ),
   assignedAt: timestamp("assigned_at"),
-  
+
   // Time Tracking
   estimatedCompletionDate: timestamp("estimated_completion_date"),
   actualCompletionDate: timestamp("actual_completion_date"),
   estimatedDuration: integer("estimated_duration"), // minutes
   actualDuration: integer("actual_duration"), // minutes
-  
+
   // Payment and Pricing (enhanced for HandleiT! escrow)
   estimatedCost: decimal("estimated_cost", { precision: 8, scale: 2 }),
   finalCost: decimal("final_cost", { precision: 8, scale: 2 }),
   requiresEscrow: boolean("requires_escrow").notNull().default(false),
   escrowAmount: decimal("escrow_amount", { precision: 8, scale: 2 }),
   escrowStatus: escrowStatusEnum("escrow_status"),
-  
+
   // Loyalty and Rewards (for LoyalizeiT!)
   pointsReward: integer("points_reward").default(0),
-  membershipBenefitApplied: boolean("membership_benefit_applied").notNull().default(false),
-  loyaltyDiscountApplied: decimal("loyalty_discount_applied", { precision: 5, scale: 2 }).default("0.00"),
-  
+  membershipBenefitApplied: boolean("membership_benefit_applied")
+    .notNull()
+    .default(false),
+  loyaltyDiscountApplied: decimal("loyalty_discount_applied", {
+    precision: 5,
+    scale: 2,
+  }).default("0.00"),
+
   // Documentation
   images: jsonb("images").$type<string[]>(),
   memberNotes: text("member_notes"),
   internalNotes: text("internal_notes"), // for home manager use
   completionNotes: text("completion_notes"),
-  
+
   // Metadata
   serviceMetadata: jsonb("service_metadata"), // Service-specific data
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -236,10 +337,18 @@ export const serviceRequests = pgTable("service_requests", {
 });
 
 export const workOrders = pgTable("work_orders", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  serviceRequestId: varchar("service_request_id").notNull().references(() => serviceRequests.id),
-  homeManagerId: varchar("home_manager_id").notNull().references(() => users.id),
-  contractorId: varchar("contractor_id").references(() => contractorProfiles.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  serviceRequestId: varchar("service_request_id")
+    .notNull()
+    .references(() => serviceRequests.id),
+  homeManagerId: varchar("home_manager_id")
+    .notNull()
+    .references(() => users.id),
+  contractorId: varchar("contractor_id").references(
+    () => contractorProfiles.id,
+  ),
   workOrderNumber: text("work_order_number").notNull().unique(),
   status: workOrderStatusEnum("status").notNull().default("created"),
   scheduledStartDate: timestamp("scheduled_start_date"),
@@ -261,15 +370,24 @@ export const workOrders = pgTable("work_orders", {
 });
 
 export const estimates = pgTable("estimates", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  serviceRequestId: varchar("service_request_id").notNull().references(() => serviceRequests.id),
-  contractorId: varchar("contractor_id").notNull().references(() => contractorProfiles.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  serviceRequestId: varchar("service_request_id")
+    .notNull()
+    .references(() => serviceRequests.id),
+  contractorId: varchar("contractor_id")
+    .notNull()
+    .references(() => contractorProfiles.id),
   estimateNumber: text("estimate_number").notNull().unique(),
   title: text("title").notNull(),
   description: text("description").notNull(),
   laborCost: decimal("labor_cost", { precision: 8, scale: 2 }).notNull(),
   materialCost: decimal("material_cost", { precision: 8, scale: 2 }).notNull(),
-  additionalCosts: decimal("additional_costs", { precision: 8, scale: 2 }).default("0.00"),
+  additionalCosts: decimal("additional_costs", {
+    precision: 8,
+    scale: 2,
+  }).default("0.00"),
   totalCost: decimal("total_cost", { precision: 8, scale: 2 }).notNull(),
   estimatedHours: decimal("estimated_hours", { precision: 5, scale: 2 }),
   startDate: timestamp("start_date"),
@@ -287,15 +405,26 @@ export const estimates = pgTable("estimates", {
 });
 
 export const invoices = pgTable("invoices", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  workOrderId: varchar("work_order_id").notNull().references(() => workOrders.id),
-  memberId: varchar("member_id").notNull().references(() => memberProfiles.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  workOrderId: varchar("work_order_id")
+    .notNull()
+    .references(() => workOrders.id),
+  memberId: varchar("member_id")
+    .notNull()
+    .references(() => memberProfiles.id),
   invoiceNumber: text("invoice_number").notNull().unique(),
   subtotal: decimal("subtotal", { precision: 8, scale: 2 }).notNull(),
   tax: decimal("tax", { precision: 8, scale: 2 }).notNull().default("0.00"),
   total: decimal("total", { precision: 8, scale: 2 }).notNull(),
   loyaltyPointsUsed: integer("loyalty_points_used").notNull().default(0),
-  loyaltyPointsValue: decimal("loyalty_points_value", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  loyaltyPointsValue: decimal("loyalty_points_value", {
+    precision: 8,
+    scale: 2,
+  })
+    .notNull()
+    .default("0.00"),
   amountDue: decimal("amount_due", { precision: 8, scale: 2 }).notNull(),
   loyaltyPointsEarned: integer("loyalty_points_earned").notNull().default(0),
   status: invoiceStatusEnum("status").notNull().default("draft"),
@@ -311,8 +440,12 @@ export const invoices = pgTable("invoices", {
 });
 
 export const loyaltyPointTransactions = pgTable("loyalty_point_transactions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  memberId: varchar("member_id").notNull().references(() => memberProfiles.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  memberId: varchar("member_id")
+    .notNull()
+    .references(() => memberProfiles.id),
   transactionType: text("transaction_type").notNull(), // earned, spent, expired, adjusted
   points: integer("points").notNull(),
   description: text("description").notNull(),
@@ -323,13 +456,20 @@ export const loyaltyPointTransactions = pgTable("loyalty_point_transactions", {
 });
 
 export const deals = pgTable("deals", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  merchantId: varchar("merchant_id").notNull().references(() => merchantProfiles.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  merchantId: varchar("merchant_id")
+    .notNull()
+    .references(() => merchantProfiles.id),
   title: text("title").notNull(),
   description: text("description").notNull(),
   category: text("category").notNull(),
   discountType: text("discount_type").notNull(), // percentage, fixed, bogo
-  discountValue: decimal("discount_value", { precision: 5, scale: 2 }).notNull(),
+  discountValue: decimal("discount_value", {
+    precision: 5,
+    scale: 2,
+  }).notNull(),
   originalPrice: decimal("original_price", { precision: 8, scale: 2 }),
   finalPrice: decimal("final_price", { precision: 8, scale: 2 }),
   validFrom: timestamp("valid_from").notNull(),
@@ -347,9 +487,15 @@ export const deals = pgTable("deals", {
 });
 
 export const dealRedemptions = pgTable("deal_redemptions", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  dealId: varchar("deal_id").notNull().references(() => deals.id),
-  memberId: varchar("member_id").notNull().references(() => memberProfiles.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  dealId: varchar("deal_id")
+    .notNull()
+    .references(() => deals.id),
+  memberId: varchar("member_id")
+    .notNull()
+    .references(() => memberProfiles.id),
   redemptionCode: text("redemption_code").notNull().unique(),
   usedAt: timestamp("used_at"),
   isUsed: boolean("is_used").notNull().default(false),
@@ -357,8 +503,12 @@ export const dealRedemptions = pgTable("deal_redemptions", {
 });
 
 export const communityPosts = pgTable("community_posts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  authorId: varchar("author_id").notNull().references(() => users.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  authorId: varchar("author_id")
+    .notNull()
+    .references(() => users.id),
   content: text("content").notNull(),
   images: jsonb("images").$type<string[]>(),
   tags: jsonb("tags").$type<string[]>(),
@@ -370,7 +520,9 @@ export const communityPosts = pgTable("community_posts", {
 });
 
 export const communityGroups = pgTable("community_groups", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   description: text("description").notNull(),
   category: text("category").notNull(),
@@ -379,15 +531,23 @@ export const communityGroups = pgTable("community_groups", {
   memberCount: integer("member_count").notNull().default(0),
   tags: jsonb("tags").$type<string[]>(),
   location: text("location"),
-  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdBy: varchar("created_by")
+    .notNull()
+    .references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const messages = pgTable("messages", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  senderId: varchar("sender_id").notNull().references(() => users.id),
-  receiverId: varchar("receiver_id").notNull().references(() => users.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  senderId: varchar("sender_id")
+    .notNull()
+    .references(() => users.id),
+  receiverId: varchar("receiver_id")
+    .notNull()
+    .references(() => users.id),
   subject: text("subject"),
   content: text("content").notNull(),
   isRead: boolean("is_read").notNull().default(false),
@@ -400,8 +560,12 @@ export const messages = pgTable("messages", {
 });
 
 export const notifications = pgTable("notifications", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id),
   title: text("title").notNull(),
   message: text("message").notNull(),
   type: text("type").notNull(),
@@ -412,8 +576,12 @@ export const notifications = pgTable("notifications", {
 });
 
 export const calendarEvents = pgTable("calendar_events", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id),
   title: text("title").notNull(),
   description: text("description"),
   startTime: timestamp("start_time").notNull(),
@@ -434,19 +602,23 @@ export const calendarEvents = pgTable("calendar_events", {
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
-  username: true,  // Legacy field - not used in Replit Auth
-  password: true,  // SECURITY: Remove password to prevent plaintext storage
+  username: true, // Legacy field - not used in Replit Auth
+  password: true, // SECURITY: Remove password to prevent plaintext storage
   createdAt: true,
   updatedAt: true,
 });
 
-export const insertMemberProfileSchema = createInsertSchema(memberProfiles).omit({
+export const insertMemberProfileSchema = createInsertSchema(
+  memberProfiles,
+).omit({
   id: true,
   joinedAt: true,
   updatedAt: true,
 });
 
-export const insertContractorProfileSchema = createInsertSchema(contractorProfiles).omit({
+export const insertContractorProfileSchema = createInsertSchema(
+  contractorProfiles,
+).omit({
   id: true,
   isVerified: true,
   verifiedAt: true,
@@ -457,7 +629,9 @@ export const insertContractorProfileSchema = createInsertSchema(contractorProfil
   updatedAt: true,
 });
 
-export const insertMerchantProfileSchema = createInsertSchema(merchantProfiles).omit({
+export const insertMerchantProfileSchema = createInsertSchema(
+  merchantProfiles,
+).omit({
   id: true,
   rating: true,
   reviewCount: true,
@@ -474,7 +648,9 @@ export const insertHomeDetailsSchema = createInsertSchema(homeDetails).omit({
   updatedAt: true,
 });
 
-export const insertServiceRequestSchema = createInsertSchema(serviceRequests).omit({
+export const insertServiceRequestSchema = createInsertSchema(
+  serviceRequests,
+).omit({
   id: true,
   status: true,
   assignedContractorId: true,
@@ -538,7 +714,9 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   createdAt: true,
 });
 
-export const insertCalendarEventSchema = createInsertSchema(calendarEvents).omit({
+export const insertCalendarEventSchema = createInsertSchema(
+  calendarEvents,
+).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -550,7 +728,9 @@ export type User = typeof users.$inferSelect;
 export type UpsertUser = typeof users.$inferInsert; // Required for Replit Auth
 export type InsertMemberProfile = z.infer<typeof insertMemberProfileSchema>;
 export type MemberProfile = typeof memberProfiles.$inferSelect;
-export type InsertContractorProfile = z.infer<typeof insertContractorProfileSchema>;
+export type InsertContractorProfile = z.infer<
+  typeof insertContractorProfileSchema
+>;
 export type ContractorProfile = typeof contractorProfiles.$inferSelect;
 export type InsertMerchantProfile = z.infer<typeof insertMerchantProfileSchema>;
 export type MerchantProfile = typeof merchantProfiles.$inferSelect;
@@ -572,7 +752,8 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
-export type LoyaltyPointTransaction = typeof loyaltyPointTransactions.$inferSelect;
+export type LoyaltyPointTransaction =
+  typeof loyaltyPointTransactions.$inferSelect;
 export type DealRedemption = typeof dealRedemptions.$inferSelect;
 export type CommunityPost = typeof communityPosts.$inferSelect;
 export type CommunityGroup = typeof communityGroups.$inferSelect;

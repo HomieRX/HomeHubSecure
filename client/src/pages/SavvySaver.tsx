@@ -72,10 +72,10 @@ export default function SavvySaver() {
         deal.merchantName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         deal.category?.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesCategory = !selectedCategory || 
+      const matchesCategory = !selectedCategory || selectedCategory === "all" || 
         deal.category?.toLowerCase() === selectedCategory.toLowerCase();
 
-      const matchesDiscountType = !selectedDiscountType ||
+      const matchesDiscountType = !selectedDiscountType || selectedDiscountType === "all" ||
         deal.discountType?.toLowerCase() === selectedDiscountType.toLowerCase();
 
       // Check if deal is still valid
@@ -105,8 +105,8 @@ export default function SavvySaver() {
     });
 
   // Get unique categories and discount types for filters
-  const categories = [...new Set(deals.map((d: Deal) => d.category).filter(Boolean))];
-  const discountTypes = [...new Set(deals.map((d: Deal) => d.discountType).filter(Boolean))];
+  const categories = Array.from(new Set(deals.map((d: Deal) => d.category).filter(Boolean)));
+  const discountTypes = Array.from(new Set(deals.map((d: Deal) => d.discountType).filter(Boolean)));
 
   const toggleFavorite = (dealId: string) => {
     setFavorites(prev => 
@@ -186,7 +186,7 @@ export default function SavvySaver() {
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
+                <SelectItem value="all">All Categories</SelectItem>
                 {categories.map((category) => (
                   <SelectItem key={category} value={category}>
                     {category}
@@ -201,7 +201,7 @@ export default function SavvySaver() {
                 <SelectValue placeholder="All Discount Types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Types</SelectItem>
+                <SelectItem value="all">All Types</SelectItem>
                 {discountTypes.map((type) => (
                   <SelectItem key={type} value={type}>
                     {type.charAt(0).toUpperCase() + type.slice(1)}

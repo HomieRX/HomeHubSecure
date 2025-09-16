@@ -67,13 +67,13 @@ export default function MerchantsDirectory() {
         merchant.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         merchant.description?.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesCategory = !selectedCategory || 
+      const matchesCategory = !selectedCategory || selectedCategory === "all" || 
         merchant.category?.toLowerCase() === selectedCategory.toLowerCase();
 
-      const matchesZip = !selectedZipCode ||
+      const matchesZip = !selectedZipCode || selectedZipCode === "all" ||
         merchant.zipCode?.includes(selectedZipCode);
 
-      const matchesCity = !selectedCity ||
+      const matchesCity = !selectedCity || selectedCity === "all" ||
         merchant.city?.toLowerCase().includes(selectedCity.toLowerCase());
 
       return matchesSearch && matchesCategory && matchesZip && matchesCity;
@@ -94,9 +94,9 @@ export default function MerchantsDirectory() {
     });
 
   // Get unique categories, zip codes, and cities for filters
-  const categories = [...new Set(merchants.map((m: Merchant) => m.category).filter(Boolean))];
-  const zipCodes = [...new Set(merchants.map((m: Merchant) => m.zipCode).filter(Boolean))];
-  const cities = [...new Set(merchants.map((m: Merchant) => m.city).filter(Boolean))];
+  const categories = Array.from(new Set(merchants.map((m: Merchant) => m.category).filter(Boolean)));
+  const zipCodes = Array.from(new Set(merchants.map((m: Merchant) => m.zipCode).filter(Boolean)));
+  const cities = Array.from(new Set(merchants.map((m: Merchant) => m.city).filter(Boolean)));
 
   return (
     <div className="space-y-6 p-6">
@@ -136,7 +136,7 @@ export default function MerchantsDirectory() {
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
+                <SelectItem value="all">All Categories</SelectItem>
                 {categories.map((category) => (
                   <SelectItem key={category} value={category}>
                     {category}
@@ -151,7 +151,7 @@ export default function MerchantsDirectory() {
                 <SelectValue placeholder="All ZIP Codes" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All ZIP Codes</SelectItem>
+                <SelectItem value="all">All ZIP Codes</SelectItem>
                 {zipCodes.map((zip) => (
                   <SelectItem key={zip} value={zip}>
                     {zip}
@@ -166,7 +166,7 @@ export default function MerchantsDirectory() {
                 <SelectValue placeholder="All Cities" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Cities</SelectItem>
+                <SelectItem value="all">All Cities</SelectItem>
                 {cities.map((city) => (
                   <SelectItem key={city} value={city}>
                     {city}
