@@ -1,0 +1,227 @@
+PreventiT! — Bundle Builder, Submission, and Scheduling
+Objective
+
+Build a maintenance “bundle” workflow where members select eligible items (per membership tier), submit them as a single work order, choose preferred service dates, and get scheduled by admin. The system enforces tier limits, locks submissions after send, and coordinates confirmations and notifications.
+
+Roles
+
+Member: selects maintenance items, submits bundle, indicates 3 preferred dates, confirms scheduled date, requests edits if needed.
+
+Admin/Scheduler: reviews submitted bundles, schedules date/time window, assigns technician, manages changes, sends notifications, approves or denies edit requests.
+
+Technician (optional for later): receives work order details and route plan.
+
+Core Concepts
+
+Maintenance Item: a predefined task (e.g., “Change HVAC filter”). Each item has a standard duration, tools/materials list, and seasonality window.
+
+Bundle: a set of selected items for a member, submitted together as one work order.
+
+Work Order: operational record created from a submitted bundle (single address).
+
+Tier Allowance: max number of items per membership cycle; overages can prompt upsell or add-on fees.
+
+Member Flow (UI/UX)
+
+Select Items
+
+Show eligible items with name, description, estimated duration, seasonality.
+
+As items are selected, display a running counter and progress bar:
+X selected / Y allowed based on membership tier.
+
+If selection would exceed allowance:
+
+Block submission or allow add-on with clear pricing.
+
+Offer tier upgrade CTA.
+
+Preferred Dates
+
+Member chooses up to 3 preferred service dates with an optional time window (AM/PM or 2-hour slots).
+
+Show plainly: “Preferences only, not guaranteed.”
+
+Review & Submit
+
+Review page shows: items, total estimated time, service address, notes, preferred dates.
+
+On submit:
+
+Create Bundle and corresponding Work Order with status = Submitted.
+
+Lock bundle from direct edits.
+
+Display “Submitted” state with a Request Edit button.
+
+Post-Submission
+
+Member can Request Edit (free-text reason). Status flips to Edit Requested for admin review; member still can’t edit until admin approves.
+
+Member sees Bundle Log with status timeline and notifications.
+
+Confirmation
+
+When scheduled, member gets a notice to Confirm. They must tick a confirmation box.
+
+If not confirmed within the configured window (e.g., 48 hours), send reminders, then auto-confirm or auto-release slot based on admin setting.
+
+Admin Flow
+
+Queue & Capacity View
+
+List of submitted bundles with filters: region, tier, season window, duration, priority, age.
+
+Capacity calendar with crew availability, blackout dates, travel buffers.
+
+Scheduling
+
+Choose a date and time window; optionally override member preferences.
+
+Assign technician/crew.
+
+Set Routing batch for the day (optional later).
+
+Save → Work Order status becomes Scheduled.
+
+Edit Requests
+
+See and approve/deny Edit Requests:
+
+Approve → unlock specific fields for member (items, notes, preferred dates). On re-submit, lock again and set status back to Submitted.
+
+Deny → keep locked, log reason to member.
+
+Notifications
+
+On schedule, send member notice with date/time window and confirmation checkbox.
+
+Send technician assignment and day-of reminders (if tech app exists).
+
+Day-of Ops
+
+Mark En Route, In Progress, Completed, or Unable to Complete with reason codes (no access, weather, parts).
+
+States (Status Machine)
+
+Draft (before submit)
+
+Submitted (locked; awaiting scheduling)
+
+Edit Requested (member asked for changes)
+
+Edit Window Open (admin temporarily unlocked; resubmission required)
+
+Scheduled (date/time set)
+
+Member Confirmed / Member Unconfirmed (derived flags)
+
+In Progress
+
+Completed
+
+Cancelled (by member or admin; capture reason)
+
+Deferred (pushed due to weather/parts/capacity)
+
+State transitions must be logged with actor, timestamp, and reason.
+
+Rules & Constraints
+
+Tier enforcement: cannot submit more than allowed items unless add-on purchase is completed.
+
+Seasonality: items may be hidden or flagged outside their recommended window; admin can override.
+
+Address binding: one bundle per service address. If the member has multiple properties, they pick one per bundle.
+
+Edit locks: after submission, member cannot edit unless admin approves an edit window.
+
+Lead time: enforce minimum advance days (configurable) between submission and earliest schedule.
+
+Reschedule policy: define max reschedules per bundle and cutoff time (e.g., 24 hours) to avoid no-show chaos.
+
+Bad weather/Force majeure: admin can bulk defer affected work orders; send automatic notices with re-preference capture.
+
+No-show: flag and apply policy (fee or strike) if configured.
+
+Accessibility: clear text, accessible date pickers, and status descriptions.
+
+Notifications (templates; channels: email/SMS/in-app)
+
+Submission received: bundle summary + “We’ll schedule soon.”
+
+Edit request received/approved/denied: include reasons.
+
+Scheduled: date/time window + confirm CTA + calendar ICS.
+
+Reminder: T-48h and T-3h reminders to confirm or prep property.
+
+Rescheduled/Deferred/Cancelled: reason + next steps.
+
+Completed: summary with any notes or follow-ups.
+
+Data You’ll Need (high level; not relational details)
+
+Bundle: id, member_id, address_id, item_count, estimated_total_minutes, preferred_dates[1..3], member_notes, status, audit_log, created_at, updated_at.
+
+Work Order: id, bundle_id, scheduled_date, time_window, technician_id, route_batch_id, status, confirmation_flag, completion_notes, reason_codes, created_at, updated_at.
+
+Membership Context: tier_name, items_allowed, cycle_start/end, items_used (for progress bar).
+
+Maintenance Items Catalog: id, name, description, est_minutes, season_window, materials list, display order.
+
+UI Requirements
+
+Bundle Builder
+
+Card list of items with checkbox, duration chip, and season badge.
+
+Sticky progress bar: “X of Y items selected” with color change when nearing limit.
+
+Preferred dates picker with clear “preferences only” helper text.
+
+Review screen before submit.
+
+Member Bundle Log
+
+List of submitted bundles with status chips and quick actions (Request Edit, View Details).
+
+Admin Scheduling
+
+Calendar view with drag-drop scheduling, crew filters, and conflict warnings.
+
+Bulk actions for deferral.
+
+Edit request queue with approve/deny + message.
+
+Validation & Edge Cases
+
+Block submission if item_count = 0.
+
+If preferred dates are within blackout or past lead time, warn and still allow submit; admin can override later.
+
+If tier resets mid-cycle, clarify whether leftover items roll over (default: no roll-over).
+
+If member tries to exceed allowance, show upgrade/add-on path with pricing and do not lose the current selection.
+
+Prevent double-booking the same member/address on the same day unless admin overrides.
+
+Analytics & Reporting
+
+Submissions by tier, average schedule time from submission to scheduled date, completion rate, average bundle duration vs actual, deferral reasons, confirmation rates, no-show rate.
+
+Acceptance Criteria
+
+Members can select items, see a real-time counter and progress bar, select up to 3 preferred dates, submit, and view their locked bundle.
+
+Admin can schedule any submitted bundle and trigger member confirmation.
+
+Edit requests work end-to-end with audit logging.
+
+Notifications fire at the correct events.
+
+State transitions are enforced and logged.
+
+Tier limits are applied correctly with upgrade/add-on handling.
+
+Calendar capacity prevents double booking unless admin overrides.
