@@ -26,7 +26,10 @@ import {
   ChevronRight,
   ChevronDown,
   Settings,
-  ShieldCheck
+  ShieldCheck,
+  Award,
+  Star,
+  Trophy
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useState } from 'react';
@@ -46,15 +49,19 @@ const navigationItems = [
       { title: 'Estimates', url: '/estimates', icon: FileText }
     ]
   },
+  { title: 'Merchants', url: '/merchants', icon: Building2 },
+  { title: 'Savvy Saver', url: '/savvy-saver', icon: Percent },
   { 
-    title: 'Merchants', 
-    url: '/merchants', 
-    icon: Building2,
+    title: 'Rewards', 
+    url: '/rewards', 
+    icon: Gift, 
+    subtitle: 'LoyalizeiT!',
     submenu: [
-      { title: 'Savvy Saver', url: '/savvy-saver', icon: Percent }
+      { title: 'Badges', url: '/badges', icon: Award },
+      { title: 'Ranks', url: '/ranks', icon: Star },
+      { title: 'Achievements', url: '/achievements', icon: Trophy }
     ]
   },
-  { title: 'Rewards', url: '/rewards', icon: Gift, subtitle: 'LoyalizeiT!' },
   { 
     title: 'Community', 
     url: '/community', 
