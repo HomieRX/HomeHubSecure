@@ -739,6 +739,117 @@ export const DealUpdateSchema = z.object({
 }).strict();
 
 // ======================================================================
+// FORUM SYSTEM VALIDATION SCHEMAS
+// ======================================================================
+
+// Forum Validation Schemas
+export const ForumCreateSchema = z.object({
+  name: z.string().min(1, "Forum name required").max(100, "Name too long"),
+  description: z.string().min(10, "Description must be at least 10 characters").max(1000, "Description too long"),
+  forumType: z.enum(["general", "qa", "announcements", "help", "showcase", "group"]).default("general"),
+  moderation: z.enum(["open", "moderated", "restricted", "locked"]).default("open"),
+  
+  // Optional connection to community groups
+  communityGroupId: z.string().uuid("Invalid community group ID").optional(),
+  
+  // Organization and display
+  displayOrder: z.number().min(0, "Invalid display order").default(0),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Invalid hex color").optional(),
+  icon: z.string().min(1, "Icon required").max(50, "Icon name too long").optional(),
+  coverImage: z.string().regex(urlRegex, "Invalid image URL").optional(),
+  
+  // Access control
+  isPrivate: z.boolean().default(false),
+  membershipRequired: z.enum(["HomeHUB", "HomePRO", "HomeHERO", "HomeGURU"]).optional(),
+  requiredRoles: z.array(z.enum(["homeowner", "contractor", "merchant", "admin"])).optional(),
+  
+  // Moderation
+  moderatorIds: z.array(z.string().uuid("Invalid moderator ID")).optional(),
+  tags: z.array(z.string().min(1, "Tag cannot be empty").max(30, "Tag too long")).optional(),
+  rules: z.string().max(2000, "Rules too long").optional(),
+}).strict();
+
+export const ForumUpdateSchema = ForumCreateSchema.partial();
+
+// Forum Topic Validation Schemas
+export const ForumTopicCreateSchema = z.object({
+  forumId: z.string().uuid("Invalid forum ID"),
+  title: z.string().min(1, "Title required").max(200, "Title too long"),
+  description: z.string().max(1000, "Description too long").optional(),
+  slug: z.string().min(1, "Slug required").max(250, "Slug too long").regex(/^[a-z0-9-]+$/, "Slug must contain only lowercase letters, numbers, and hyphens").optional(),
+  
+  // Initial post content (required for topic creation)
+  initialPostContent: z.string().min(10, "Initial post must be at least 10 characters").max(10000, "Initial post too long"),
+  
+  // Q&A specific
+  bountyPoints: z.number().min(0, "Invalid bounty points").max(1000, "Maximum 1000 bounty points").default(0),
+  
+  // Tags and categorization
+  tags: z.array(z.string().min(1, "Tag cannot be empty").max(30, "Tag too long")).optional(),
+  
+  // Metadata
+  metadata: z.record(z.any()).optional(),
+}).strict();
+
+export const ForumTopicUpdateSchema = z.object({
+  title: z.string().min(1, "Title required").max(200, "Title too long").optional(),
+  description: z.string().max(1000, "Description too long").optional(),
+  slug: z.string().min(1, "Slug required").max(250, "Slug too long").regex(/^[a-z0-9-]+$/, "Slug must contain only lowercase letters, numbers, and hyphens").optional(),
+  status: z.enum(["active", "locked", "pinned", "solved", "closed", "archived"]).optional(),
+  isPinned: z.boolean().optional(),
+  isLocked: z.boolean().optional(),
+  isSolved: z.boolean().optional(),
+  acceptedAnswerId: z.string().uuid("Invalid answer ID").optional(),
+  bountyPoints: z.number().min(0, "Invalid bounty points").max(1000, "Maximum 1000 bounty points").optional(),
+  tags: z.array(z.string().min(1, "Tag cannot be empty").max(30, "Tag too long")).optional(),
+  metadata: z.record(z.any()).optional(),
+}).strict();
+
+// Forum Post Validation Schemas
+export const ForumPostCreateSchema = z.object({
+  topicId: z.string().uuid("Invalid topic ID"),
+  forumId: z.string().uuid("Invalid forum ID"),
+  parentPostId: z.string().uuid("Invalid parent post ID").optional(),
+  postType: z.enum(["initial", "reply", "answer", "comment"]).default("reply"),
+  
+  // Content
+  content: z.string().min(1, "Content required").max(10000, "Content too long"),
+  attachments: z.array(z.string().regex(urlRegex, "Invalid attachment URL")).optional(),
+  images: z.array(z.string().regex(urlRegex, "Invalid image URL")).optional(),
+  
+  // Metadata
+  metadata: z.record(z.any()).optional(),
+}).strict();
+
+export const ForumPostUpdateSchema = z.object({
+  content: z.string().min(1, "Content required").max(10000, "Content too long").optional(),
+  attachments: z.array(z.string().regex(urlRegex, "Invalid attachment URL")).optional(),
+  images: z.array(z.string().regex(urlRegex, "Invalid image URL")).optional(),
+  status: z.enum(["active", "pending", "approved", "flagged", "hidden", "deleted"]).optional(),
+  editReason: z.string().max(200, "Edit reason too long").optional(),
+  metadata: z.record(z.any()).optional(),
+}).strict();
+
+// Forum Vote Validation Schemas
+export const ForumVoteCreateSchema = z.object({
+  postId: z.string().uuid("Invalid post ID"),
+  voteType: z.enum(["up", "down"]),
+}).strict();
+
+// Moderation Schemas
+export const ForumModerationSchema = z.object({
+  postId: z.string().uuid("Invalid post ID"),
+  status: z.enum(["active", "pending", "approved", "flagged", "hidden", "deleted"]),
+  moderatorReason: z.string().min(1, "Moderator reason required").max(500, "Reason too long").optional(),
+}).strict();
+
+export const ForumFlagSchema = z.object({
+  postId: z.string().uuid("Invalid post ID"),
+  reason: z.enum(["spam", "inappropriate", "harassment", "offtopic", "duplicate", "other"]),
+  description: z.string().max(500, "Description too long").optional(),
+}).strict();
+
+// ======================================================================
 // SCHEDULING SYSTEM VALIDATION SCHEMAS
 // ======================================================================
 
@@ -955,3 +1066,14 @@ export type TimeSlotUpdate = z.infer<typeof TimeSlotUpdateSchema>;
 export type ScheduleConflictCreate = z.infer<typeof ScheduleConflictCreateSchema>;
 export type ScheduleConflictResolution = z.infer<typeof ScheduleConflictResolutionSchema>;
 export type ScheduleAuditLogCreate = z.infer<typeof ScheduleAuditLogCreateSchema>;
+
+// Forum system derived types
+export type ForumCreate = z.infer<typeof ForumCreateSchema>;
+export type ForumUpdate = z.infer<typeof ForumUpdateSchema>;
+export type ForumTopicCreate = z.infer<typeof ForumTopicCreateSchema>;
+export type ForumTopicUpdate = z.infer<typeof ForumTopicUpdateSchema>;
+export type ForumPostCreate = z.infer<typeof ForumPostCreateSchema>;
+export type ForumPostUpdate = z.infer<typeof ForumPostUpdateSchema>;
+export type ForumVoteCreate = z.infer<typeof ForumVoteCreateSchema>;
+export type ForumModeration = z.infer<typeof ForumModerationSchema>;
+export type ForumFlag = z.infer<typeof ForumFlagSchema>;

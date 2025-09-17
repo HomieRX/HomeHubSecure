@@ -34,7 +34,11 @@ import {
   Award,
   Crown,
   Trophy,
-  Cog
+  Cog,
+  Hash,
+  MessageCircle,
+  MessageSquareText,
+  Flag
 } from "lucide-react";
 
 type AdminMenuItem = {
@@ -135,6 +139,30 @@ const adminMenuItems: AdminMenuItem[] = [
     title: "PreventiT! Maintenance Items",
     icon: Cog,
     description: "Manage maintenance catalog and task definitions"
+  },
+  {
+    id: "forums",
+    title: "Forums",
+    icon: Hash,
+    description: "Manage community forums and discussion boards"
+  },
+  {
+    id: "forumTopics",
+    title: "Forum Topics",
+    icon: MessageCircle,
+    description: "Manage forum topics and discussions"
+  },
+  {
+    id: "forumPosts",
+    title: "Forum Posts",
+    icon: MessageSquareText,
+    description: "Manage forum posts and content moderation"
+  },
+  {
+    id: "forumPostVotes",
+    title: "Post Votes",
+    icon: Flag,
+    description: "Manage forum post voting system and analytics"
   }
 ];
 

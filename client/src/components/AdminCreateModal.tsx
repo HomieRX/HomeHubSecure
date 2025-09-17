@@ -27,6 +27,10 @@ import {
   insertRankSchema,
   insertAchievementSchema,
   insertMaintenanceItemSchema,
+  insertForumSchema,
+  insertForumTopicSchema,
+  insertForumPostSchema,
+  insertForumPostVoteSchema,
   type InsertUser,
   type InsertMemberProfile,
   type InsertContractorProfile,
@@ -41,7 +45,11 @@ import {
   type InsertBadge,
   type InsertRank,
   type InsertAchievement,
-  type InsertMaintenanceItem
+  type InsertMaintenanceItem,
+  type InsertForum,
+  type InsertForumTopic,
+  type InsertForumPost,
+  type InsertForumPostVote
 } from "@shared/schema";
 
 type EntityType = 
@@ -59,7 +67,11 @@ type EntityType =
   | "badges"
   | "ranks"
   | "achievements"
-  | "maintenanceItems";
+  | "maintenanceItems"
+  | "forums"
+  | "forumTopics"
+  | "forumPosts"
+  | "forumPostVotes";
 
 interface AdminCreateModalProps {
   isOpen: boolean;
@@ -85,6 +97,10 @@ const getSchemaForEntity = (entityType: EntityType) => {
     case "ranks": return insertRankSchema;
     case "achievements": return insertAchievementSchema;
     case "maintenanceItems": return insertMaintenanceItemSchema;
+    case "forums": return insertForumSchema;
+    case "forumTopics": return insertForumTopicSchema;
+    case "forumPosts": return insertForumPostSchema;
+    case "forumPostVotes": return insertForumPostVoteSchema;
     default: return insertUserSchema;
   }
 };
@@ -344,6 +360,60 @@ const getDefaultValues = (entityType: EntityType) => {
         toolsNeeded: [],
         safetyNotes: "",
         instructions: ""
+      };
+    case "forums":
+      return {
+        name: "",
+        description: "",
+        forumType: "general",
+        moderation: "open",
+        displayOrder: 0,
+        color: "",
+        icon: "",
+        coverImage: "",
+        isPrivate: false,
+        membershipRequired: null,
+        requiredRoles: [],
+        moderatorIds: [],
+        tags: [],
+        rules: "",
+        isActive: true,
+        createdBy: ""
+      };
+    case "forumTopics":
+      return {
+        forumId: "",
+        title: "",
+        description: "",
+        slug: "",
+        status: "active",
+        isPinned: false,
+        isLocked: false,
+        isSolved: false,
+        authorId: "",
+        bountyPoints: 0,
+        tags: [],
+        metadata: {}
+      };
+    case "forumPosts":
+      return {
+        topicId: "",
+        forumId: "",
+        parentPostId: null,
+        postType: "reply",
+        content: "",
+        attachments: [],
+        images: [],
+        authorId: "",
+        status: "active",
+        editReason: "",
+        metadata: {}
+      };
+    case "forumPostVotes":
+      return {
+        postId: "",
+        userId: "",
+        voteType: "up"
       };
     default:
       return {};
