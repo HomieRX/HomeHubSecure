@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import Stripe from "stripe";
+import express from "express";
 import { storage } from "./storage";
 import { 
   setupAuth, 
@@ -75,6 +77,56 @@ import {
 } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 
+// Stripe Configuration - javascript_stripe integration
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: '2023-10-16',
+});
+
+// SendGrid Configuration - javascript_sendgrid integration  
+import { MailService } from '@sendgrid/mail';
+
+const mailService = new MailService();
+if (process.env.SENDGRID_API_KEY) {
+  mailService.setApiKey(process.env.SENDGRID_API_KEY);
+}
+
+// Email notification service
+async function sendPaymentNotificationEmail(
+  to: string,
+  invoiceData: any,
+  paymentData: any
+): Promise<boolean> {
+  if (!process.env.SENDGRID_API_KEY) {
+    console.warn('SendGrid API key not configured, skipping email notification');
+    return false;
+  }
+  
+  try {
+    await mailService.send({
+      to,
+      from: 'noreply@homehub.app', // Configure this with your verified sender
+      subject: `Payment Confirmation - Invoice ${invoiceData.invoiceNumber}`,
+      html: `
+        <h2>Payment Confirmation</h2>
+        <p>Dear Customer,</p>
+        <p>Your payment for invoice #${invoiceData.invoiceNumber} has been successfully processed.</p>
+        <ul>
+          <li><strong>Amount:</strong> $${invoiceData.total}</li>
+          <li><strong>Payment Method:</strong> ${paymentData.paymentMethod}</li>
+          <li><strong>Transaction ID:</strong> ${paymentData.transactionId}</li>
+          <li><strong>Date:</strong> ${new Date().toLocaleDateString()}</li>
+        </ul>
+        <p>Thank you for your business!</p>
+        <p>Best regards,<br>The HomeHub Team</p>
+      `,
+    });
+    return true;
+  } catch (error) {
+    console.error('SendGrid email error:', error);
+    return false;
+  }
+}
+
 // PII Sanitization Functions for Public Endpoints
 function sanitizeMemberProfile(profile: MemberProfile) {
   return {
@@ -144,9 +196,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
   
-  // Apply CSRF protection middleware to all routes
-  app.use(setCSRFToken);
-  app.use(csrfProtection);
+  // Raw body parsing for Stripe webhooks (must be before other body parsers)
+  app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
+  
+  // Apply CSRF protection middleware to all routes (except webhooks)
+  app.use('/api', (req, res, next) => {
+    if (req.path.startsWith('/webhooks/')) {
+      return next(); // Skip CSRF for webhooks
+    }
+    setCSRFToken(req, res, next);
+  });
+  app.use('/api', (req, res, next) => {
+    if (req.path.startsWith('/webhooks/')) {
+      return next(); // Skip CSRF for webhooks
+    }
+    csrfProtection(req, res, next);
+  });
 
   // CSRF token endpoint for frontend
   app.get('/api/csrf-token', (req: any, res) => {
@@ -1430,6 +1495,168 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Stripe Payment Intent Creation Endpoint
+  app.post("/api/payments/intent", isAuthenticated, async (req: any, res) => {
+    try {
+      // Validate Stripe configuration
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return res.status(500).json({ error: "Stripe not configured" });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const { invoiceId } = req.body;
+      if (!invoiceId) {
+        return res.status(400).json({ error: "invoiceId is required" });
+      }
+
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ error: "Invoice not found" });
+      }
+
+      // Verify user has access to this invoice
+      const memberProfile = await storage.getMemberProfile(invoice.memberId);
+      if (memberProfile?.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied to this invoice" });
+      }
+
+      // Verify invoice is in payable status
+      if (invoice.status !== "sent") {
+        return res.status(400).json({ error: "Invoice is not in payable status" });
+      }
+
+      // Create Stripe PaymentIntent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(Number(invoice.amountDue) * 100), // Convert to cents
+        currency: 'usd',
+        metadata: {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          memberId: invoice.memberId,
+        },
+        description: `Payment for Invoice ${invoice.invoiceNumber}`,
+      });
+
+      res.json({
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+      });
+    } catch (error: any) {
+      console.error("Payment intent creation error:", error);
+      res.status(500).json({ error: "Failed to create payment intent" });
+    }
+  });
+
+  // Stripe Webhook Reconciliation Endpoint  
+  app.post("/api/webhooks/stripe", async (req: any, res) => {
+    let event: Stripe.Event;
+
+    try {
+      // Verify webhook signature for security
+      const signature = req.headers['stripe-signature'] as string;
+      if (!signature || !process.env.STRIPE_WEBHOOK_SECRET) {
+        console.error("Missing Stripe webhook signature or secret");
+        return res.status(400).json({ error: "Webhook signature verification failed" });
+      }
+
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (error: any) {
+      console.error("Webhook signature verification failed:", error.message);
+      return res.status(400).json({ error: "Webhook signature verification failed" });
+    }
+
+    try {
+      // Handle payment_intent.succeeded event
+      if (event.type === 'payment_intent.succeeded') {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        const invoiceId = paymentIntent.metadata.invoiceId;
+
+        if (!invoiceId) {
+          console.error("No invoiceId in payment intent metadata");
+          return res.status(400).json({ error: "Invalid payment intent metadata" });
+        }
+
+        // Get invoice and verify it exists
+        const invoice = await storage.getInvoice(invoiceId);
+        if (!invoice) {
+          console.error(`Invoice not found: ${invoiceId}`);
+          return res.status(404).json({ error: "Invoice not found" });
+        }
+
+        // Verify payment amount matches invoice amount
+        const expectedAmount = Math.round(Number(invoice.amountDue) * 100);
+        if (paymentIntent.amount !== expectedAmount) {
+          console.error(`Payment amount mismatch: expected ${expectedAmount}, got ${paymentIntent.amount}`);
+          return res.status(400).json({ error: "Payment amount mismatch" });
+        }
+
+        // Mark invoice as paid (idempotent operation)
+        try {
+          const paidInvoice = await storage.payInvoice(
+            invoiceId,
+            `Stripe (${paymentIntent.payment_method})`,
+            paymentIntent.id
+          );
+
+          // Send payment notifications
+          const memberProfile = await storage.getMemberProfile(invoice.memberId);
+          if (memberProfile?.email) {
+            await sendPaymentNotificationEmail(
+              memberProfile.email,
+              paidInvoice,
+              {
+                paymentMethod: 'Stripe',
+                transactionId: paymentIntent.id,
+              }
+            );
+          }
+
+          // If invoice has a contractor, notify them too
+          if (invoice.workOrderId) {
+            const workOrder = await storage.getWorkOrder(invoice.workOrderId);
+            if (workOrder?.contractorId) {
+              const contractorProfile = await storage.getContractorProfile(workOrder.contractorId);
+              if (contractorProfile?.email) {
+                await sendPaymentNotificationEmail(
+                  contractorProfile.email,
+                  paidInvoice,
+                  {
+                    paymentMethod: 'Stripe',
+                    transactionId: paymentIntent.id,
+                  }
+                );
+              }
+            }
+          }
+
+          console.log(`Payment successful: Invoice ${invoice.invoiceNumber} paid via Stripe`);
+        } catch (paymentError: any) {
+          if (paymentError.code === 'DUPLICATE_OPERATION_ERROR') {
+            console.log(`Payment already processed for invoice ${invoiceId}`);
+            // This is fine - webhook retry or duplicate payment
+          } else {
+            console.error("Error processing payment:", paymentError);
+            return res.status(500).json({ error: "Failed to process payment" });
+          }
+        }
+      }
+
+      res.status(200).json({ received: true });
+    } catch (error: any) {
+      console.error("Webhook processing error:", error);
+      res.status(500).json({ error: "Webhook processing failed" });
+    }
+  });
+
+  // Updated Invoice Payment Endpoint (client-side confirmation only)
   app.post("/api/invoices/:id/pay", isAuthenticated, async (req: any, res) => {
     try {
       const currentUser = await storage.getUser(req.user.claims.sub);
@@ -1454,9 +1681,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "paymentMethod and transactionId are required" });
       }
       
+      // For new Stripe payments, redirect to payment intent flow
+      if (paymentMethod.includes('Stripe') || paymentMethod.includes('Card')) {
+        return res.status(400).json({ 
+          error: "Please use the new payment intent flow for card payments",
+          redirectTo: "/api/payments/intent"
+        });
+      }
+
+      // Legacy payment processing for non-Stripe payments
       const paidInvoice = await storage.payInvoice(req.params.id, paymentMethod, transactionId);
       res.json(paidInvoice);
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Invoice payment error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
