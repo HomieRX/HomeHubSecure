@@ -27,11 +27,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Camera, Upload, Edit3, Save, Star, Shield, 
   User, UserCheck, Building2, Store, 
   Home, MapPin, Phone, Mail, 
-  CreditCard, Award, Calendar 
+  CreditCard, Award, Calendar, Bell 
 } from 'lucide-react';
 import {
   UserProfileUpdateSchema,
@@ -51,6 +52,11 @@ import type {
   MerchantProfileCreate,
   MerchantProfileUpdate
 } from '@shared/types';
+import type { 
+  NotificationSettings,
+  InsertNotificationSettings
+} from '@shared/schema';
+import { insertNotificationSettingsSchema } from '@shared/schema';
 
 // Types for different profile sections
 type UserProfile = {
@@ -139,6 +145,13 @@ export default function Profile() {
     retry: false
   });
 
+  // Fetch notification settings for current user
+  const { data: notificationSettings, isLoading: notificationLoading, error: notificationError } = useQuery<NotificationSettings>({
+    queryKey: ['/api/notification-settings'],
+    enabled: !!currentUser?.id,
+    retry: false
+  });
+
   // Form for user profile updates
   const userForm = useForm<UserProfileUpdate>({
     resolver: zodResolver(UserProfileUpdateSchema),
@@ -167,6 +180,40 @@ export default function Profile() {
   const merchantForm = useForm<MerchantProfileUpdate>({
     resolver: zodResolver(MerchantProfileUpdateSchema),
     defaultValues: {}
+  });
+
+  // Form for notification settings
+  const notificationForm = useForm<Partial<InsertNotificationSettings>>({
+    resolver: zodResolver(
+      insertNotificationSettingsSchema.omit({ userId: true }).partial()
+    ),
+    defaultValues: {
+      // Mentions
+      mentions: true,
+      // Posts & Comments
+      postReplies: true,
+      // Account Settings
+      passwordChanged: true,
+      // Activity Feeds
+      activityFeedReplies: true,
+      // Social Groups
+      groupDetailsUpdated: true,
+      groupPromotion: true,
+      groupInviteReceived: true,
+      groupJoinRequest: true,
+      groupJoinAccepted: true,
+      groupJoinRejected: true,
+      groupNewPost: true,
+      groupNewDiscussion: true,
+      // Discussion Forums
+      forumNewDiscussion: true,
+      forumNewReply: true,
+      // Private Messages
+      privateMessages: true,
+      // Member Connections
+      connectionRequest: true,
+      connectionAccepted: true,
+    }
   });
 
   // Update form values when data loads
@@ -199,6 +246,30 @@ export default function Profile() {
       merchantForm.reset(merchantProfile);
     }
   }, [merchantProfile, merchantForm]);
+
+  useEffect(() => {
+    if (notificationSettings) {
+      notificationForm.reset({
+        mentions: notificationSettings.mentions,
+        postReplies: notificationSettings.postReplies,
+        passwordChanged: notificationSettings.passwordChanged,
+        activityFeedReplies: notificationSettings.activityFeedReplies,
+        groupDetailsUpdated: notificationSettings.groupDetailsUpdated,
+        groupPromotion: notificationSettings.groupPromotion,
+        groupInviteReceived: notificationSettings.groupInviteReceived,
+        groupJoinRequest: notificationSettings.groupJoinRequest,
+        groupJoinAccepted: notificationSettings.groupJoinAccepted,
+        groupJoinRejected: notificationSettings.groupJoinRejected,
+        groupNewPost: notificationSettings.groupNewPost,
+        groupNewDiscussion: notificationSettings.groupNewDiscussion,
+        forumNewDiscussion: notificationSettings.forumNewDiscussion,
+        forumNewReply: notificationSettings.forumNewReply,
+        privateMessages: notificationSettings.privateMessages,
+        connectionRequest: notificationSettings.connectionRequest,
+        connectionAccepted: notificationSettings.connectionAccepted,
+      });
+    }
+  }, [notificationSettings, notificationForm]);
 
   const handleCoverImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -309,6 +380,23 @@ export default function Profile() {
     }
   });
 
+  const updateNotificationMutation = useMutation({
+    mutationFn: (data: Partial<InsertNotificationSettings>) => 
+      apiRequest('PUT', '/api/notification-settings', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/notification-settings'] });
+      toast({ title: 'Success', description: 'Notification settings updated successfully' });
+      setIsEditing(false);
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: 'Error', 
+        description: error.message || 'Failed to update notification settings',
+        variant: 'destructive' 
+      });
+    }
+  });
+
   // Submit handlers
   const onSubmitUser = (data: UserProfileUpdate) => {
     updateUserMutation.mutate(data);
@@ -324,6 +412,10 @@ export default function Profile() {
 
   const onSubmitMerchant = (data: MerchantProfileUpdate) => {
     updateMerchantMutation.mutate(data);
+  };
+
+  const onSubmitNotifications = (data: Partial<InsertNotificationSettings>) => {
+    updateNotificationMutation.mutate(data);
   };
 
   const getMembershipColor = (tier: string) => {
@@ -589,12 +681,26 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      {/* Profile Information */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile Information</CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* Tabs Layout */}
+      <Tabs defaultValue="profile" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="profile" data-testid="tab-profile">
+            <User className="h-4 w-4 mr-2" />
+            Profile
+          </TabsTrigger>
+          <TabsTrigger value="notifications" data-testid="tab-notifications">
+            <Bell className="h-4 w-4 mr-2" />
+            Notifications
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Profile Tab */}
+        <TabsContent value="profile" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile Information</CardTitle>
+            </CardHeader>
+            <CardContent>
           {currentUser?.role === 'homeowner' && memberProfile ? (
             <Form {...memberForm}>
               <form onSubmit={memberForm.handleSubmit(onSubmitMember)} className="space-y-6">
@@ -867,8 +973,461 @@ export default function Profile() {
               </form>
             </Form>
           )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Notifications Tab */}
+        <TabsContent value="notifications" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Notification Settings</CardTitle>
+              <p className="text-muted-foreground">
+                Customize what notifications you receive from HomeHub
+              </p>
+            </CardHeader>
+            <CardContent>
+              <Form {...notificationForm}>
+                <form onSubmit={notificationForm.handleSubmit(onSubmitNotifications)} className="space-y-6">
+                  
+                  {/* Mentions Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Mentions</h3>
+                    <FormField
+                      control={notificationForm.control}
+                      name="mentions"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Mentions (@)</FormLabel>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified when someone mentions you in posts or comments
+                            </p>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-mentions"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Posts & Comments Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Posts & Comments</h3>
+                    <FormField
+                      control={notificationForm.control}
+                      name="postReplies"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Post Replies</FormLabel>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified when someone replies to your posts
+                            </p>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-post-replies"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Account Settings Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Account Settings</h3>
+                    <FormField
+                      control={notificationForm.control}
+                      name="passwordChanged"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Password Changes</FormLabel>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified when your password is changed
+                            </p>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-password-changed"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Activity Feeds Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Activity Feeds</h3>
+                    <FormField
+                      control={notificationForm.control}
+                      name="activityFeedReplies"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Activity Feed Replies</FormLabel>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified about replies to your activity feed posts
+                            </p>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-activity-feed-replies"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Social Groups Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Social Groups</h3>
+                    <div className="grid gap-4">
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupDetailsUpdated"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Group Updates</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified when group details are updated
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-group-updates"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupPromotion"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Group Promotions</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified about group promotions and special offers
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-group-promotions"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupInviteReceived"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Group Invites</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified when you receive group invitations
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-group-invites"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupJoinRequest"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Join Requests</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified about group join requests (if you're an admin)
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-join-requests"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupJoinAccepted"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Join Requests Accepted</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified when your group join requests are accepted
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-join-accepted"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupJoinRejected"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Join Requests Rejected</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified when your group join requests are rejected
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-join-rejected"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupNewPost"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">New Group Posts</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified about new posts in your groups
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-new-posts"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="groupNewDiscussion"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">New Group Discussions</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified about new discussions in your groups
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-new-discussions"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Discussion Forums Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Discussion Forums</h3>
+                    <div className="grid gap-4">
+                      <FormField
+                        control={notificationForm.control}
+                        name="forumNewDiscussion"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">New Forum Discussions</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified about new discussions in forums you follow
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-forum-discussions"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="forumNewReply"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Forum Replies</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified about replies to forum discussions you participate in
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-forum-replies"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Private Messages Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Private Messages</h3>
+                    <FormField
+                      control={notificationForm.control}
+                      name="privateMessages"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Private Messages</FormLabel>
+                            <p className="text-sm text-muted-foreground">
+                              Get notified when you receive private messages
+                            </p>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-private-messages"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Member Connections Section */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Member Connections</h3>
+                    <div className="grid gap-4">
+                      <FormField
+                        control={notificationForm.control}
+                        name="connectionRequest"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Connection Requests</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified when someone wants to connect with you
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-connection-requests"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={notificationForm.control}
+                        name="connectionAccepted"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Connection Accepted</FormLabel>
+                              <p className="text-sm text-muted-foreground">
+                                Get notified when your connection requests are accepted
+                              </p>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-connection-accepted"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  {isEditing && (
+                    <div className="flex gap-2">
+                      <Button 
+                        type="submit" 
+                        disabled={updateNotificationMutation.isPending}
+                        data-testid="button-save-notifications"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        {updateNotificationMutation.isPending ? 'Saving...' : 'Save Notification Settings'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setIsEditing(false)}
+                        data-testid="button-cancel-notification-changes"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
