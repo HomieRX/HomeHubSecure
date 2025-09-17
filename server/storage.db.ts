@@ -29,6 +29,17 @@ import {
 } from "@shared/schema";
 import { IStorage } from "./storage";
 
+// Helper to merge updates without writing undefined values
+function applyDefined<T>(base: T, updates: Partial<Record<keyof T, unknown>>): T {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      (result as any)[key] = value;
+    }
+  }
+  return result;
+}
+
 export class DbStorage implements IStorage {
   // User management methods
   async getUser(id: string): Promise<User | undefined> {
@@ -57,7 +68,7 @@ export class DbStorage implements IStorage {
 
   async updateUser(id: string, updates: Partial<InsertUser>): Promise<User | undefined> {
     const result = await db.update(users)
-      .set(updates)
+      .set(applyDefined({}, updates))
       .where(eq(users.id, id))
       .returning();
     return result[0];
@@ -118,13 +129,13 @@ export class DbStorage implements IStorage {
 
   async updateMemberProfile(id: string, updates: Partial<InsertMemberProfile>): Promise<MemberProfile | undefined> {
     const result = await db.update(memberProfiles)
-      .set(updates)
+      .set(applyDefined({}, updates))
       .where(eq(memberProfiles.id, id))
       .returning();
     return result[0];
   }
 
-  async getMembersByTier(tier: string): Promise<MemberProfile[]> {
+  async getMembersByTier(tier: MemberProfile['membershipTier']): Promise<MemberProfile[]> {
     return await db.select().from(memberProfiles).where(eq(memberProfiles.membershipTier, tier));
   }
 
@@ -149,8 +160,8 @@ export class DbStorage implements IStorage {
       isVerified: contractorProfiles.isVerified
     }).from(contractorProfiles)
     .where(and(
-      filters?.isVerified !== undefined ? eq(contractorProfiles.isVerified, filters.isVerified) : sql`true`,
-      filters?.isActive !== undefined ? eq(contractorProfiles.isActive, filters.isActive) : sql`true`
+      ...(filters?.isVerified !== undefined ? [eq(contractorProfiles.isVerified, filters.isVerified)] : []),
+      ...(filters?.isActive !== undefined ? [eq(contractorProfiles.isActive, filters.isActive)] : [])
     ));
 
     return result;
@@ -165,14 +176,14 @@ export class DbStorage implements IStorage {
       isVerified: merchantProfiles.isVerified
     }).from(merchantProfiles)
     .where(and(
-      filters?.isVerified !== undefined ? eq(merchantProfiles.isVerified, filters.isVerified) : sql`true`,
-      filters?.isActive !== undefined ? eq(merchantProfiles.isActive, filters.isActive) : sql`true`
+      ...(filters?.isVerified !== undefined ? [eq(merchantProfiles.isVerified, filters.isVerified)] : []),
+      ...(filters?.isActive !== undefined ? [eq(merchantProfiles.isActive, filters.isActive)] : [])
     ));
 
     return result;
   }
 
-  async getPublicMembersByTier(tier: string): Promise<any[]> {
+  async getPublicMembersByTier(tier: MemberProfile['membershipTier']): Promise<any[]> {
     return await db.select({
       id: memberProfiles.id,
       nickname: memberProfiles.nickname,
@@ -199,7 +210,7 @@ export class DbStorage implements IStorage {
 
   async updateContractorProfile(id: string, updates: Partial<InsertContractorProfile>): Promise<ContractorProfile | undefined> {
     const result = await db.update(contractorProfiles)
-      .set(updates)
+      .set(applyDefined({}, updates))
       .where(eq(contractorProfiles.id, id))
       .returning();
     return result[0];
@@ -257,7 +268,7 @@ export class DbStorage implements IStorage {
 
   async updateMerchantProfile(id: string, updates: Partial<InsertMerchantProfile>): Promise<MerchantProfile | undefined> {
     const result = await db.update(merchantProfiles)
-      .set(updates)
+      .set(applyDefined({}, updates))
       .where(eq(merchantProfiles.id, id))
       .returning();
     return result[0];
@@ -292,7 +303,7 @@ export class DbStorage implements IStorage {
   }
 
   async getHomeDetailsByProfileId(profileId: string): Promise<HomeDetails | undefined> {
-    const result = await db.select().from(homeDetails).where(eq(homeDetails.memberProfileId, profileId)).limit(1);
+    const result = await db.select().from(homeDetails).where(eq(homeDetails.profileId, profileId)).limit(1);
     return result[0];
   }
 
@@ -303,7 +314,7 @@ export class DbStorage implements IStorage {
 
   async updateHomeDetails(id: string, updates: Partial<InsertHomeDetails>): Promise<HomeDetails | undefined> {
     const result = await db.update(homeDetails)
-      .set(updates)
+      .set(applyDefined({}, updates))
       .where(eq(homeDetails.id, id))
       .returning();
     return result[0];
@@ -476,11 +487,11 @@ export class DbStorage implements IStorage {
     return await db.transaction(async (tx) => {
       // Update the estimate status to approved
       const [approvedEstimate] = await tx.update(estimates)
-        .set({ 
-          status: "approved",
-          approvedAt: new Date(),
+        .set(applyDefined({}, { 
+          status: "approved" as const,
+          respondedAt: new Date(),
           updatedAt: new Date()
-        })
+        }))
         .where(eq(estimates.id, id))
         .returning();
 
@@ -488,18 +499,34 @@ export class DbStorage implements IStorage {
         throw new Error("Estimate not found");
       }
 
+      // Get the service request to find the member
+      const [serviceRequest] = await tx.select()
+        .from(serviceRequests)
+        .where(eq(serviceRequests.id, approvedEstimate.serviceRequestId))
+        .limit(1);
+
+      if (!serviceRequest) {
+        throw new Error("Service request not found");
+      }
+
+      // Generate a unique invoice number
+      const invoiceNumber = `INV-${Date.now()}`;
+      
       // Create an invoice based on the approved estimate
       await tx.insert(invoices).values({
-        estimateId: id,
-        memberProfileId: approvedEstimate.memberProfileId,
-        contractorId: approvedEstimate.contractorId,
-        workOrderId: approvedEstimate.workOrderId,
-        amount: approvedEstimate.totalAmount,
-        description: `Invoice for approved estimate: ${approvedEstimate.description}`,
-        status: "draft",
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-        createdAt: new Date(),
-        updatedAt: new Date()
+        workOrderId: "temp-work-order-id", // This needs proper work order creation
+        memberId: serviceRequest.memberId,
+        invoiceNumber,
+        subtotal: approvedEstimate.totalCost,
+        tax: "0.00",
+        total: approvedEstimate.totalCost,
+        amountDue: approvedEstimate.totalCost,
+        lineItems: [{
+          description: approvedEstimate.description,
+          amount: approvedEstimate.totalCost,
+          quantity: 1
+        }],
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
       });
 
       return approvedEstimate;
@@ -535,7 +562,7 @@ export class DbStorage implements IStorage {
 
   async getInvoicesByMember(memberId: string): Promise<Invoice[]> {
     return await db.select().from(invoices)
-      .where(eq(invoices.memberProfileId, memberId))
+      .where(eq(invoices.memberId, memberId))
       .orderBy(desc(invoices.createdAt));
   }
 
@@ -587,13 +614,12 @@ export class DbStorage implements IStorage {
       // Add loyalty points to member's account (ledger entry)
       if (loyaltyPoints > 0) {
         await tx.insert(loyaltyPointTransactions).values({
-          memberProfileId: paidInvoice.memberProfileId,
+          memberId: paidInvoice.memberId,
+          transactionType: "earned",
           points: loyaltyPoints,
-          type: "earned",
           description: `Points earned from invoice payment #${paidInvoice.id}`,
           referenceId: paidInvoice.id,
-          referenceType: "invoice_payment",
-          createdAt: new Date()
+          referenceType: "invoice_payment"
         });
       }
 
@@ -613,42 +639,40 @@ export class DbStorage implements IStorage {
   // Loyalty points
   async getLoyaltyPointBalance(memberId: string): Promise<number> {
     const result = await db.select({
-      balance: sql<number>`COALESCE(SUM(CASE WHEN type = 'earned' THEN points ELSE -points END), 0)`
+      balance: sql<number>`COALESCE(SUM(CASE WHEN transaction_type = 'earned' THEN points ELSE -points END), 0)`
     })
     .from(loyaltyPointTransactions)
-    .where(eq(loyaltyPointTransactions.memberProfileId, memberId));
+    .where(eq(loyaltyPointTransactions.memberId, memberId));
     
     return result[0]?.balance || 0;
   }
 
   async getLoyaltyPointTransactions(memberId: string): Promise<LoyaltyPointTransaction[]> {
     return await db.select().from(loyaltyPointTransactions)
-      .where(eq(loyaltyPointTransactions.memberProfileId, memberId))
+      .where(eq(loyaltyPointTransactions.memberId, memberId))
       .orderBy(desc(loyaltyPointTransactions.createdAt));
   }
 
   async addLoyaltyPoints(memberId: string, points: number, description: string, referenceId?: string, referenceType?: string): Promise<LoyaltyPointTransaction> {
     const result = await db.insert(loyaltyPointTransactions).values({
-      memberProfileId: memberId,
+      memberId: memberId,
       points,
-      type: "earned",
+      transactionType: "earned",
       description,
       referenceId,
-      referenceType,
-      createdAt: new Date()
+      referenceType
     }).returning();
     return result[0];
   }
 
   async spendLoyaltyPoints(memberId: string, points: number, description: string, referenceId?: string, referenceType?: string): Promise<LoyaltyPointTransaction> {
     const result = await db.insert(loyaltyPointTransactions).values({
-      memberProfileId: memberId,
+      memberId: memberId,
       points,
-      type: "spent",
+      transactionType: "spent",
       description,
       referenceId,
-      referenceType,
-      createdAt: new Date()
+      referenceType
     }).returning();
     return result[0];
   }
@@ -696,8 +720,10 @@ export class DbStorage implements IStorage {
   async redeemDeal(dealId: string, memberId: string): Promise<DealRedemption> {
     const result = await db.insert(dealRedemptions).values({
       dealId,
-      memberProfileId: memberId,
-      redeemedAt: new Date()
+      memberId: memberId,
+      redemptionCode: `RDM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      usedAt: new Date(),
+      isUsed: true
     }).returning();
     return result[0];
   }
