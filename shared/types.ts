@@ -739,6 +739,184 @@ export const DealUpdateSchema = z.object({
 }).strict();
 
 // ======================================================================
+// SCHEDULING SYSTEM VALIDATION SCHEMAS
+// ======================================================================
+
+// Scheduling-related types
+export type SlotType = "standard" | "emergency" | "inspection" | "consultation" | "followup";
+export type SlotDuration = "1_hour" | "2_hour" | "4_hour" | "8_hour" | "custom";
+export type ConflictSeverity = "hard" | "soft" | "travel";
+
+// Contractor Availability Request Schema
+export const ContractorAvailabilityRequestSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  startDate: z.string().datetime("Invalid start date format"),
+  endDate: z.string().datetime("Invalid end date format"),
+  slotDuration: z.enum(["1_hour", "2_hour", "4_hour", "8_hour", "custom"]).default("2_hour"),
+  slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).default("standard"),
+  timezone: z.string().max(50, "Timezone string too long").optional(),
+}).strict().refine(
+  (data) => new Date(data.endDate) > new Date(data.startDate),
+  {
+    message: "End date must be after start date",
+    path: ["endDate"]
+  }
+);
+
+// Scheduling Conflict Check Schema
+export const ScheduleConflictCheckSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  startTime: z.string().datetime("Invalid start time format"),
+  endTime: z.string().datetime("Invalid end time format"),
+}).strict().refine(
+  (data) => new Date(data.endTime) > new Date(data.startTime),
+  {
+    message: "End time must be after start time",
+    path: ["endTime"]
+  }
+);
+
+// Member Preferred Dates Schema (max 3 dates)
+export const MemberPreferredDatesSchema = z.array(
+  z.string().datetime("Invalid date format")
+).max(3, "Maximum 3 preferred dates allowed").optional();
+
+// Time Slot Booking Request Schema
+export const SlotBookingRequestSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  workOrderId: z.string().min(1, "Work order ID required"),
+  startTime: z.string().datetime("Invalid start time format"),
+  endTime: z.string().datetime("Invalid end time format"),
+  slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).default("standard"),
+  memberPreferredDates: MemberPreferredDatesSchema,
+}).strict().refine(
+  (data) => new Date(data.endTime) > new Date(data.startTime),
+  {
+    message: "End time must be after start time",
+    path: ["endTime"]
+  }
+);
+
+// Scheduled Work Order Creation Schema
+export const ScheduledWorkOrderCreateSchema = z.object({
+  // Standard work order fields
+  serviceRequestId: z.string().uuid("Invalid service request ID"),
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  description: z.string().min(1, "Description required").max(2000, "Description too long"),
+  estimatedDuration: z.number().min(15, "Minimum 15 minutes").max(480, "Maximum 8 hours").optional(),
+  actualDuration: z.number().min(1, "Invalid duration").optional(),
+  status: z.enum(["created", "in_progress", "completed", "cancelled"]).default("created"),
+  completionNotes: z.string().max(2000, "Completion notes too long").optional(),
+  
+  // Scheduling fields
+  scheduledStartDate: z.string().datetime("Invalid scheduled start date format"),
+  scheduledEndDate: z.string().datetime("Invalid scheduled end date format"),
+  slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).default("standard"),
+  memberPreferredDates: MemberPreferredDatesSchema,
+  
+  // Admin override fields
+  adminOverride: z.boolean().default(false),
+  overrideReason: z.string().min(1, "Override reason required").max(500, "Override reason too long").optional(),
+}).strict().refine(
+  (data) => new Date(data.scheduledEndDate) > new Date(data.scheduledStartDate),
+  {
+    message: "Scheduled end date must be after start date",
+    path: ["scheduledEndDate"]
+  }
+).refine(
+  (data) => !data.adminOverride || (data.adminOverride && data.overrideReason),
+  {
+    message: "Override reason is required when admin override is enabled",
+    path: ["overrideReason"]
+  }
+);
+
+// Admin Schedule Override Request Schema
+export const AdminScheduleOverrideRequestSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  workOrderId: z.string().uuid("Invalid work order ID"),
+  startTime: z.string().datetime("Invalid start time format"),
+  endTime: z.string().datetime("Invalid end time format"),
+  overrideReason: z.string().min(1, "Override reason required").max(500, "Override reason too long"),
+}).strict().refine(
+  (data) => new Date(data.endTime) > new Date(data.startTime),
+  {
+    message: "End time must be after start time",
+    path: ["endTime"]
+  }
+);
+
+// Time Slot Create Schema
+export const TimeSlotCreateSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  slotDate: z.string().datetime("Invalid slot date format"),
+  startTime: z.string().datetime("Invalid start time format"),
+  endTime: z.string().datetime("Invalid end time format"),
+  slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).default("standard"),
+  slotDuration: z.enum(["1_hour", "2_hour", "4_hour", "8_hour", "custom"]).default("2_hour"),
+  isBooked: z.boolean().default(false),
+  isBlocked: z.boolean().default(false),
+  blockReason: z.string().max(200, "Block reason too long").optional(),
+  workOrderId: z.string().uuid("Invalid work order ID").optional(),
+}).strict().refine(
+  (data) => new Date(data.endTime) > new Date(data.startTime),
+  {
+    message: "End time must be after start time",
+    path: ["endTime"]
+  }
+);
+
+export const TimeSlotUpdateSchema = z.object({
+  slotDate: z.string().datetime("Invalid slot date format").optional(),
+  startTime: z.string().datetime("Invalid start time format").optional(),
+  endTime: z.string().datetime("Invalid end time format").optional(),
+  slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).optional(),
+  slotDuration: z.enum(["1_hour", "2_hour", "4_hour", "8_hour", "custom"]).optional(),
+  isBooked: z.boolean().optional(),
+  isBlocked: z.boolean().optional(),
+  blockReason: z.string().max(200, "Block reason too long").optional(),
+  workOrderId: z.string().uuid("Invalid work order ID").optional(),
+}).strict();
+
+// Schedule Conflict Create Schema
+export const ScheduleConflictCreateSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  workOrderId: z.string().uuid("Invalid work order ID"),
+  conflictType: z.enum(["time_overlap", "double_booking", "travel_time", "availability"]),
+  severity: z.enum(["hard", "soft", "travel"]).default("hard"),
+  conflictDescription: z.string().min(1, "Conflict description required").max(500, "Description too long"),
+  conflictingTimeStart: z.string().datetime("Invalid conflict start time format"),
+  conflictingTimeEnd: z.string().datetime("Invalid conflict end time format"),
+  conflictingEntityId: z.string().min(1, "Conflicting entity ID required").optional(),
+  conflictingEntityType: z.enum(["work_order", "time_slot", "blocked_time", "working_hours"]).optional(),
+}).strict().refine(
+  (data) => new Date(data.conflictingTimeEnd) > new Date(data.conflictingTimeStart),
+  {
+    message: "Conflict end time must be after start time",
+    path: ["conflictingTimeEnd"]
+  }
+);
+
+// Schedule Conflict Resolution Schema
+export const ScheduleConflictResolutionSchema = z.object({
+  resolutionNotes: z.string().min(1, "Resolution notes required").max(1000, "Resolution notes too long"),
+}).strict();
+
+// Schedule Audit Log Create Schema
+export const ScheduleAuditLogCreateSchema = z.object({
+  userId: z.string().uuid("Invalid user ID"),
+  action: z.enum(["slot_generated", "slot_booked", "slot_cancelled", "conflict_detected", "conflict_resolved", "admin_override", "schedule_updated"]),
+  entityType: z.enum(["work_order", "time_slot", "schedule_conflict", "contractor_profile"]),
+  entityId: z.string().min(1, "Entity ID required"),
+  oldData: z.record(z.any()).optional(),
+  newData: z.record(z.any()).optional(),
+  userRole: z.enum(["homeowner", "contractor", "merchant", "admin"]),
+  reason: z.string().max(500, "Reason too long").optional(),
+  adminOverride: z.boolean().default(false),
+  additionalData: z.record(z.any()).optional(),
+}).strict();
+
+// ======================================================================
 // DERIVED TYPES FROM SCHEMAS
 // ======================================================================
 
@@ -764,3 +942,16 @@ export type CalendarEventCreate = z.infer<typeof CalendarEventCreateSchema>;
 export type CalendarEventUpdate = z.infer<typeof CalendarEventUpdateSchema>;
 export type DealCreate = z.infer<typeof DealCreateSchema>;
 export type DealUpdate = z.infer<typeof DealUpdateSchema>;
+
+// Scheduling system derived types
+export type ContractorAvailabilityRequest = z.infer<typeof ContractorAvailabilityRequestSchema>;
+export type ScheduleConflictCheck = z.infer<typeof ScheduleConflictCheckSchema>;
+export type MemberPreferredDates = z.infer<typeof MemberPreferredDatesSchema>;
+export type SlotBookingRequest = z.infer<typeof SlotBookingRequestSchema>;
+export type ScheduledWorkOrderCreate = z.infer<typeof ScheduledWorkOrderCreateSchema>;
+export type AdminScheduleOverrideRequest = z.infer<typeof AdminScheduleOverrideRequestSchema>;
+export type TimeSlotCreate = z.infer<typeof TimeSlotCreateSchema>;
+export type TimeSlotUpdate = z.infer<typeof TimeSlotUpdateSchema>;
+export type ScheduleConflictCreate = z.infer<typeof ScheduleConflictCreateSchema>;
+export type ScheduleConflictResolution = z.infer<typeof ScheduleConflictResolutionSchema>;
+export type ScheduleAuditLogCreate = z.infer<typeof ScheduleAuditLogCreateSchema>;

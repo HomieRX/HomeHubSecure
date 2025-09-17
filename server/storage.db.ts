@@ -5,6 +5,8 @@ import {
   serviceRequests, workOrders, estimates, invoices, loyaltyPointTransactions,
   deals, dealRedemptions, messages, notifications, calendarEvents,
   communityPosts, communityGroups, badges, ranks, achievements, maintenanceItems,
+  // Scheduling system tables
+  timeSlots, scheduleConflicts, scheduleAuditLog,
   type User, type InsertUser, type UpsertUser,
   type MemberProfile, type InsertMemberProfile,
   type ContractorProfile, type InsertContractorProfile,
@@ -25,7 +27,11 @@ import {
   type LoyaltyPointTransaction,
   type DealRedemption,
   type CommunityPost,
-  type CommunityGroup
+  type CommunityGroup,
+  // Scheduling system types
+  type TimeSlot, type InsertTimeSlot,
+  type ScheduleConflict, type InsertScheduleConflict,
+  type ScheduleAuditLog, type InsertScheduleAuditLog
 } from "@shared/schema";
 import { IStorage } from "./storage";
 
@@ -1280,6 +1286,193 @@ export class DbStorage implements IStorage {
   async deleteMaintenanceItem(id: string): Promise<boolean> {
     const result = await db.delete(maintenanceItems).where(eq(maintenanceItems.id, id)).returning();
     return result.length > 0;
+  }
+
+  // ===========================
+  // SCHEDULING SYSTEM METHODS
+  // ===========================
+
+  // Time slot management
+  async getTimeSlot(id: string): Promise<TimeSlot | undefined> {
+    const result = await db.select().from(timeSlots).where(eq(timeSlots.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getContractorTimeSlots(contractorId: string, startDate?: Date, endDate?: Date): Promise<TimeSlot[]> {
+    let query = db.select().from(timeSlots).where(eq(timeSlots.contractorId, contractorId));
+    
+    if (startDate && endDate) {
+      query = query.where(
+        and(
+          eq(timeSlots.contractorId, contractorId),
+          sql`${timeSlots.slotDate} >= ${startDate.toISOString()}::timestamp`,
+          sql`${timeSlots.slotDate} <= ${endDate.toISOString()}::timestamp`
+        )
+      );
+    } else if (startDate) {
+      query = query.where(
+        and(
+          eq(timeSlots.contractorId, contractorId),
+          sql`${timeSlots.slotDate} >= ${startDate.toISOString()}::timestamp`
+        )
+      );
+    } else if (endDate) {
+      query = query.where(
+        and(
+          eq(timeSlots.contractorId, contractorId),
+          sql`${timeSlots.slotDate} <= ${endDate.toISOString()}::timestamp`
+        )
+      );
+    }
+
+    return await query.orderBy(timeSlots.startTime);
+  }
+
+  async getOverlappingTimeSlots(contractorId: string, startTime: Date, endTime: Date): Promise<TimeSlot[]> {
+    return await db.select()
+      .from(timeSlots)
+      .where(
+        and(
+          eq(timeSlots.contractorId, contractorId),
+          // Check for time overlaps using PostgreSQL OVERLAPS operator
+          sql`(${timeSlots.startTime}, ${timeSlots.endTime}) OVERLAPS (${startTime.toISOString()}::timestamp, ${endTime.toISOString()}::timestamp)`
+        )
+      )
+      .orderBy(timeSlots.startTime);
+  }
+
+  async createTimeSlot(slot: InsertTimeSlot): Promise<TimeSlot> {
+    const result = await db.insert(timeSlots).values(slot).returning();
+    return result[0];
+  }
+
+  async updateTimeSlot(id: string, updates: Partial<InsertTimeSlot>): Promise<TimeSlot | undefined> {
+    const result = await db.update(timeSlots)
+      .set(applyDefined({ updatedAt: new Date() }, updates))
+      .where(eq(timeSlots.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteTimeSlot(id: string): Promise<boolean> {
+    const result = await db.delete(timeSlots).where(eq(timeSlots.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Work order scheduling queries
+  async getOverlappingWorkOrders(contractorId: string, startTime: Date, endTime: Date): Promise<WorkOrder[]> {
+    return await db.select()
+      .from(workOrders)
+      .where(
+        and(
+          eq(workOrders.contractorId, contractorId),
+          sql`${workOrders.scheduledStartDate} IS NOT NULL`,
+          sql`${workOrders.scheduledEndDate} IS NOT NULL`,
+          // Check for time overlaps using PostgreSQL OVERLAPS operator
+          sql`(${workOrders.scheduledStartDate}, ${workOrders.scheduledEndDate}) OVERLAPS (${startTime.toISOString()}::timestamp, ${endTime.toISOString()}::timestamp)`
+        )
+      )
+      .orderBy(workOrders.scheduledStartDate);
+  }
+
+  async getWorkOrdersByDateRange(contractorId: string, startDate: Date, endDate: Date): Promise<WorkOrder[]> {
+    return await db.select()
+      .from(workOrders)
+      .where(
+        and(
+          eq(workOrders.contractorId, contractorId),
+          sql`${workOrders.scheduledStartDate} IS NOT NULL`,
+          sql`${workOrders.scheduledStartDate} >= ${startDate.toISOString()}::timestamp`,
+          sql`${workOrders.scheduledStartDate} <= ${endDate.toISOString()}::timestamp`
+        )
+      )
+      .orderBy(workOrders.scheduledStartDate);
+  }
+
+  // Schedule conflict management
+  async getScheduleConflict(id: string): Promise<ScheduleConflict | undefined> {
+    const result = await db.select().from(scheduleConflicts).where(eq(scheduleConflicts.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getScheduleConflictsByWorkOrder(workOrderId: string): Promise<ScheduleConflict[]> {
+    return await db.select()
+      .from(scheduleConflicts)
+      .where(eq(scheduleConflicts.workOrderId, workOrderId))
+      .orderBy(desc(scheduleConflicts.createdAt));
+  }
+
+  async getScheduleConflictsByContractor(contractorId: string, includeResolved = false): Promise<ScheduleConflict[]> {
+    let query = db.select().from(scheduleConflicts).where(eq(scheduleConflicts.contractorId, contractorId));
+    
+    if (!includeResolved) {
+      query = query.where(
+        and(
+          eq(scheduleConflicts.contractorId, contractorId),
+          eq(scheduleConflicts.isResolved, false)
+        )
+      );
+    }
+
+    return await query.orderBy(desc(scheduleConflicts.createdAt));
+  }
+
+  async createScheduleConflict(conflict: InsertScheduleConflict): Promise<ScheduleConflict> {
+    const result = await db.insert(scheduleConflicts).values(conflict).returning();
+    return result[0];
+  }
+
+  async updateScheduleConflict(id: string, updates: Partial<InsertScheduleConflict>): Promise<ScheduleConflict | undefined> {
+    const result = await db.update(scheduleConflicts)
+      .set(applyDefined({ updatedAt: new Date() }, updates))
+      .where(eq(scheduleConflicts.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async resolveScheduleConflict(id: string, resolvedBy: string, resolutionNotes: string): Promise<ScheduleConflict | undefined> {
+    const result = await db.update(scheduleConflicts)
+      .set({
+        isResolved: true,
+        resolvedAt: new Date(),
+        resolvedBy,
+        resolutionNotes,
+        updatedAt: new Date()
+      })
+      .where(eq(scheduleConflicts.id, id))
+      .returning();
+    return result[0];
+  }
+
+  // Schedule audit logging
+  async getScheduleAuditLog(id: string): Promise<ScheduleAuditLog | undefined> {
+    const result = await db.select().from(scheduleAuditLog).where(eq(scheduleAuditLog.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getScheduleAuditLogsByEntity(entityType: string, entityId: string): Promise<ScheduleAuditLog[]> {
+    return await db.select()
+      .from(scheduleAuditLog)
+      .where(
+        and(
+          eq(scheduleAuditLog.entityType, entityType),
+          eq(scheduleAuditLog.entityId, entityId)
+        )
+      )
+      .orderBy(desc(scheduleAuditLog.createdAt));
+  }
+
+  async getScheduleAuditLogsByUser(userId: string, limit = 50): Promise<ScheduleAuditLog[]> {
+    return await db.select()
+      .from(scheduleAuditLog)
+      .where(eq(scheduleAuditLog.userId, userId))
+      .orderBy(desc(scheduleAuditLog.createdAt))
+      .limit(limit);
+  }
+
+  async createScheduleAuditLog(auditEntry: InsertScheduleAuditLog): Promise<ScheduleAuditLog> {
+    const result = await db.insert(scheduleAuditLog).values(auditEntry).returning();
+    return result[0];
   }
 }
 

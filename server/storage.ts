@@ -19,7 +19,11 @@ import {
   type LoyaltyPointTransaction,
   type DealRedemption,
   type CommunityPost,
-  type CommunityGroup
+  type CommunityGroup,
+  // Scheduling system types
+  type TimeSlot, type InsertTimeSlot,
+  type ScheduleConflict, type InsertScheduleConflict,
+  type ScheduleAuditLog, type InsertScheduleAuditLog
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -203,6 +207,36 @@ export interface IStorage {
   createMaintenanceItem(item: InsertMaintenanceItem): Promise<MaintenanceItem>;
   updateMaintenanceItem(id: string, updates: Partial<InsertMaintenanceItem>): Promise<MaintenanceItem | undefined>;
   deleteMaintenanceItem(id: string): Promise<boolean>;
+  
+  // ===========================
+  // SCHEDULING SYSTEM METHODS
+  // ===========================
+  
+  // Time slot management
+  getTimeSlot(id: string): Promise<TimeSlot | undefined>;
+  getContractorTimeSlots(contractorId: string, startDate?: Date, endDate?: Date): Promise<TimeSlot[]>;
+  getOverlappingTimeSlots(contractorId: string, startTime: Date, endTime: Date): Promise<TimeSlot[]>;
+  createTimeSlot(slot: InsertTimeSlot): Promise<TimeSlot>;
+  updateTimeSlot(id: string, updates: Partial<InsertTimeSlot>): Promise<TimeSlot | undefined>;
+  deleteTimeSlot(id: string): Promise<boolean>;
+  
+  // Work order scheduling queries
+  getOverlappingWorkOrders(contractorId: string, startTime: Date, endTime: Date): Promise<WorkOrder[]>;
+  getWorkOrdersByDateRange(contractorId: string, startDate: Date, endDate: Date): Promise<WorkOrder[]>;
+  
+  // Schedule conflict management
+  getScheduleConflict(id: string): Promise<ScheduleConflict | undefined>;
+  getScheduleConflictsByWorkOrder(workOrderId: string): Promise<ScheduleConflict[]>;
+  getScheduleConflictsByContractor(contractorId: string, includeResolved?: boolean): Promise<ScheduleConflict[]>;
+  createScheduleConflict(conflict: InsertScheduleConflict): Promise<ScheduleConflict>;
+  updateScheduleConflict(id: string, updates: Partial<InsertScheduleConflict>): Promise<ScheduleConflict | undefined>;
+  resolveScheduleConflict(id: string, resolvedBy: string, resolutionNotes: string): Promise<ScheduleConflict | undefined>;
+  
+  // Schedule audit logging
+  getScheduleAuditLog(id: string): Promise<ScheduleAuditLog | undefined>;
+  getScheduleAuditLogsByEntity(entityType: string, entityId: string): Promise<ScheduleAuditLog[]>;
+  getScheduleAuditLogsByUser(userId: string, limit?: number): Promise<ScheduleAuditLog[]>;
+  createScheduleAuditLog(auditEntry: InsertScheduleAuditLog): Promise<ScheduleAuditLog>;
 }
 
 export class MemStorage implements IStorage {

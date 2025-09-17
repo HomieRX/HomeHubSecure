@@ -1,7 +1,9 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { setupSecurityMiddleware, corsConfig, securityErrorHandler } from "./security";
 
 // Environment validation schema
 const envSchema = z.object({
@@ -79,6 +81,14 @@ function validateEnv() {
 validateEnv();
 
 const app = express();
+
+// 1. Apply security middleware first (helmet, rate limiting, security logging)
+setupSecurityMiddleware(app);
+
+// 2. CORS configuration (after security headers)
+app.use(cors(corsConfig));
+
+// 3. Body parsing middleware (after CORS)
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -115,6 +125,8 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  app.use(securityErrorHandler);
+  
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
