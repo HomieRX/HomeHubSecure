@@ -570,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Home Details Routes
-  app.get("/api/home-details/:id", async (req, res) => {
+  app.get("/api/home-details/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const details = await storage.getHomeDetails(req.params.id);
       if (!details) {
@@ -582,12 +582,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/home-details/by-profile/:profileId", async (req, res) => {
+  app.get("/api/home-details/by-profile/:profileId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const details = await storage.getHomeDetailsByProfileId(req.params.profileId);
       if (!details) {
         return res.status(404).json({ error: "Home details not found" });
       }
+
+      // Check if user owns this profile or is admin
+      const profile = await storage.getMemberProfile(req.params.profileId);
+      if (profile && profile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(details);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -624,20 +636,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Service Request Routes
-  app.get("/api/service-requests/:id", async (req, res) => {
+  app.get("/api/service-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const request = await storage.getServiceRequest(req.params.id);
       if (!request) {
         return res.status(404).json({ error: "Service request not found" });
       }
+
+      // Check if user is member who created this request, assigned contractor, or admin
+      const memberProfile = await storage.getMemberProfile(request.memberId);
+      const isOwner = memberProfile && memberProfile.userId === currentUser.id;
+      const isAssignedContractor = request.assignedContractorId && 
+        await storage.getContractorProfile(request.assignedContractorId).then(cp => cp?.userId === currentUser.id);
+      
+      if (!isOwner && !isAssignedContractor && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(request);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/service-requests/by-member/:memberId", async (req, res) => {
+  app.get("/api/service-requests/by-member/:memberId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user owns this member profile or is admin
+      const memberProfile = await storage.getMemberProfile(req.params.memberId);
+      if (!memberProfile) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      
+      if (memberProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const requests = await storage.getServiceRequestsByMember(req.params.memberId);
       res.json(requests);
     } catch (error) {
@@ -645,8 +688,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/service-requests/by-manager/:homeManagerId", async (req, res) => {
+  app.get("/api/service-requests/by-manager/:homeManagerId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user is the home manager or admin
+      if (req.params.homeManagerId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const requests = await storage.getServiceRequestsByManager(req.params.homeManagerId);
       res.json(requests);
     } catch (error) {
@@ -937,20 +990,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Work Order Routes
-  app.get("/api/work-orders/:id", async (req, res) => {
+  app.get("/api/work-orders/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const workOrder = await storage.getWorkOrder(req.params.id);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
+
+      // Check if user is the contractor, service requester, or admin
+      const contractorProfile = await storage.getContractorProfile(workOrder.contractorId);
+      const serviceRequest = await storage.getServiceRequest(workOrder.serviceRequestId);
+      const memberProfile = serviceRequest ? await storage.getMemberProfile(serviceRequest.memberId) : null;
+      
+      const isContractor = contractorProfile?.userId === currentUser.id;
+      const isServiceRequester = memberProfile?.userId === currentUser.id;
+      
+      if (!isContractor && !isServiceRequester && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(workOrder);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/work-orders/by-service-request/:serviceRequestId", async (req, res) => {
+  app.get("/api/work-orders/by-service-request/:serviceRequestId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const serviceRequest = await storage.getServiceRequest(req.params.serviceRequestId);
+      if (!serviceRequest) {
+        return res.status(404).json({ error: "Service request not found" });
+      }
+
+      // Check if user is the service requester, assigned contractor, or admin
+      const memberProfile = await storage.getMemberProfile(serviceRequest.memberId);
+      const isServiceRequester = memberProfile?.userId === currentUser.id;
+      const isAssignedContractor = serviceRequest.assignedContractorId && 
+        await storage.getContractorProfile(serviceRequest.assignedContractorId).then(cp => cp?.userId === currentUser.id);
+      
+      if (!isServiceRequester && !isAssignedContractor && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const workOrders = await storage.getWorkOrdersByServiceRequest(req.params.serviceRequestId);
       res.json(workOrders);
     } catch (error) {
@@ -958,8 +1049,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/work-orders/by-manager/:homeManagerId", async (req, res) => {
+  app.get("/api/work-orders/by-manager/:homeManagerId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user is the home manager or admin
+      if (req.params.homeManagerId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied - can only view your own managed work orders" });
+      }
+
       const workOrders = await storage.getWorkOrdersByManager(req.params.homeManagerId);
       res.json(workOrders);
     } catch (error) {
@@ -967,8 +1068,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/work-orders/by-contractor/:contractorId", async (req, res) => {
+  app.get("/api/work-orders/by-contractor/:contractorId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user owns this contractor profile or is admin
+      const contractorProfile = await storage.getContractorProfile(req.params.contractorId);
+      if (!contractorProfile) {
+        return res.status(404).json({ error: "Contractor profile not found" });
+      }
+      
+      if (contractorProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const workOrders = await storage.getWorkOrdersByContractor(req.params.contractorId);
       res.json(workOrders);
     } catch (error) {
@@ -1022,20 +1138,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Estimate Routes
-  app.get("/api/estimates/:id", async (req, res) => {
+  app.get("/api/estimates/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const estimate = await storage.getEstimate(req.params.id);
       if (!estimate) {
         return res.status(404).json({ error: "Estimate not found" });
       }
+
+      // Check if user is the contractor who created the estimate, the service requester, or admin
+      const contractorProfile = await storage.getContractorProfile(estimate.contractorId);
+      const serviceRequest = await storage.getServiceRequest(estimate.serviceRequestId);
+      const memberProfile = serviceRequest ? await storage.getMemberProfile(serviceRequest.memberId) : null;
+      
+      const isContractor = contractorProfile?.userId === currentUser.id;
+      const isServiceRequester = memberProfile?.userId === currentUser.id;
+      
+      if (!isContractor && !isServiceRequester && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(estimate);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/estimates/by-service-request/:serviceRequestId", async (req, res) => {
+  app.get("/api/estimates/by-service-request/:serviceRequestId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const serviceRequest = await storage.getServiceRequest(req.params.serviceRequestId);
+      if (!serviceRequest) {
+        return res.status(404).json({ error: "Service request not found" });
+      }
+
+      // Check if user is the service requester, assigned contractor, or admin
+      const memberProfile = await storage.getMemberProfile(serviceRequest.memberId);
+      const isServiceRequester = memberProfile?.userId === currentUser.id;
+      const isAssignedContractor = serviceRequest.assignedContractorId && 
+        await storage.getContractorProfile(serviceRequest.assignedContractorId).then(cp => cp?.userId === currentUser.id);
+      
+      if (!isServiceRequester && !isAssignedContractor && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const estimates = await storage.getEstimatesByServiceRequest(req.params.serviceRequestId);
       res.json(estimates);
     } catch (error) {
@@ -1043,8 +1197,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/estimates/by-contractor/:contractorId", async (req, res) => {
+  app.get("/api/estimates/by-contractor/:contractorId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user owns this contractor profile or is admin
+      const contractorProfile = await storage.getContractorProfile(req.params.contractorId);
+      if (!contractorProfile) {
+        return res.status(404).json({ error: "Contractor profile not found" });
+      }
+      
+      if (contractorProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const estimates = await storage.getEstimatesByContractor(req.params.contractorId);
       res.json(estimates);
     } catch (error) {
@@ -1083,11 +1252,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/estimates/:id/approve", isAuthenticated, async (req: any, res) => {
     try {
-      const estimate = await storage.approveEstimate(req.params.id);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const estimate = await storage.getEstimate(req.params.id);
       if (!estimate) {
         return res.status(404).json({ error: "Estimate not found" });
       }
-      res.json(estimate);
+
+      // Only the service requester or admin can approve estimates
+      const serviceRequest = await storage.getServiceRequest(estimate.serviceRequestId);
+      const memberProfile = serviceRequest ? await storage.getMemberProfile(serviceRequest.memberId) : null;
+      
+      if (memberProfile?.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Only the service requester can approve estimates" });
+      }
+
+      const approvedEstimate = await storage.approveEstimate(req.params.id);
+      res.json(approvedEstimate);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
@@ -1095,31 +1279,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/estimates/:id/reject", isAuthenticated, async (req: any, res) => {
     try {
-      const estimate = await storage.rejectEstimate(req.params.id);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const estimate = await storage.getEstimate(req.params.id);
       if (!estimate) {
         return res.status(404).json({ error: "Estimate not found" });
       }
-      res.json(estimate);
+
+      // Only the service requester or admin can reject estimates
+      const serviceRequest = await storage.getServiceRequest(estimate.serviceRequestId);
+      const memberProfile = serviceRequest ? await storage.getMemberProfile(serviceRequest.memberId) : null;
+      
+      if (memberProfile?.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Only the service requester can reject estimates" });
+      }
+
+      const rejectedEstimate = await storage.rejectEstimate(req.params.id);
+      res.json(rejectedEstimate);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
   // Invoice Routes
-  app.get("/api/invoices/:id", async (req, res) => {
+  app.get("/api/invoices/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const invoice = await storage.getInvoice(req.params.id);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
       }
+
+      // Check if user is the member being invoiced, the contractor who created it, or admin
+      const memberProfile = await storage.getMemberProfile(invoice.memberId);
+      const workOrder = await storage.getWorkOrder(invoice.workOrderId);
+      const contractorProfile = workOrder ? await storage.getContractorProfile(workOrder.contractorId) : null;
+      
+      const isMember = memberProfile?.userId === currentUser.id;
+      const isContractor = contractorProfile?.userId === currentUser.id;
+      
+      if (!isMember && !isContractor && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(invoice);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/invoices/by-member/:memberId", async (req, res) => {
+  app.get("/api/invoices/by-member/:memberId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user owns this member profile or is admin
+      const memberProfile = await storage.getMemberProfile(req.params.memberId);
+      if (!memberProfile) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      
+      if (memberProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const invoices = await storage.getInvoicesByMember(req.params.memberId);
       res.json(invoices);
     } catch (error) {
@@ -1127,8 +1359,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invoices/by-work-order/:workOrderId", async (req, res) => {
+  app.get("/api/invoices/by-work-order/:workOrderId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const workOrder = await storage.getWorkOrder(req.params.workOrderId);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+
+      // Check if user is the contractor or service requester, or admin
+      const contractorProfile = await storage.getContractorProfile(workOrder.contractorId);
+      const serviceRequest = await storage.getServiceRequest(workOrder.serviceRequestId);
+      const memberProfile = serviceRequest ? await storage.getMemberProfile(serviceRequest.memberId) : null;
+      
+      const isContractor = contractorProfile?.userId === currentUser.id;
+      const isServiceRequester = memberProfile?.userId === currentUser.id;
+      
+      if (!isContractor && !isServiceRequester && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const invoices = await storage.getInvoicesByWorkOrder(req.params.workOrderId);
       res.json(invoices);
     } catch (error) {
@@ -1167,23 +1421,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/invoices/:id/pay", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ error: "Invoice not found" });
+      }
+
+      // Only the member being invoiced or admin can pay the invoice
+      const memberProfile = await storage.getMemberProfile(invoice.memberId);
+      
+      if (memberProfile?.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Only the invoiced member can pay this invoice" });
+      }
+
       const { paymentMethod, transactionId } = req.body;
       if (!paymentMethod || !transactionId) {
         return res.status(400).json({ error: "paymentMethod and transactionId are required" });
       }
-      const invoice = await storage.payInvoice(req.params.id, paymentMethod, transactionId);
-      if (!invoice) {
-        return res.status(404).json({ error: "Invoice not found" });
-      }
-      res.json(invoice);
+      
+      const paidInvoice = await storage.payInvoice(req.params.id, paymentMethod, transactionId);
+      res.json(paidInvoice);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
   // Loyalty Points Routes
-  app.get("/api/loyalty-points/balance/:memberId", async (req, res) => {
+  app.get("/api/loyalty-points/balance/:memberId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user owns this member profile or is admin
+      const memberProfile = await storage.getMemberProfile(req.params.memberId);
+      if (!memberProfile) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      
+      if (memberProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const balance = await storage.getLoyaltyPointBalance(req.params.memberId);
       res.json({ balance });
     } catch (error) {
@@ -1191,8 +1475,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/loyalty-points/transactions/:memberId", async (req, res) => {
+  app.get("/api/loyalty-points/transactions/:memberId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Check if user owns this member profile or is admin
+      const memberProfile = await storage.getMemberProfile(req.params.memberId);
+      if (!memberProfile) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      
+      if (memberProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const transactions = await storage.getLoyaltyPointTransactions(req.params.memberId);
       res.json(transactions);
     } catch (error) {
@@ -1215,10 +1514,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/loyalty-points/spend", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const { memberId, points, description, referenceId, referenceType } = req.body;
       if (!memberId || !points || !description) {
         return res.status(400).json({ error: "memberId, points, and description are required" });
       }
+
+      // Check if user owns this member profile or is admin
+      const memberProfile = await storage.getMemberProfile(memberId);
+      if (!memberProfile) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      
+      if (memberProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Can only spend your own loyalty points" });
+      }
+
       const transaction = await storage.spendLoyaltyPoints(memberId, points, description, referenceId, referenceType);
       res.status(201).json(transaction);
     } catch (error) {
@@ -1293,10 +1608,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/deals/:dealId/redeem", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const { memberId } = req.body;
       if (!memberId) {
         return res.status(400).json({ error: "memberId is required" });
       }
+
+      // Check if user is redeeming for their own member profile or is admin
+      const memberProfile = await storage.getMemberProfile(memberId);
+      if (!memberProfile) {
+        return res.status(404).json({ error: "Member profile not found" });
+      }
+      
+      if (memberProfile.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Can only redeem deals for your own member profile" });
+      }
+
       const redemption = await storage.redeemDeal(req.params.dealId, memberId);
       res.status(201).json(redemption);
     } catch (error) {
@@ -1305,20 +1636,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Message Routes
-  app.get("/api/messages/:id", async (req, res) => {
+  app.get("/api/messages/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const message = await storage.getMessage(req.params.id);
       if (!message) {
         return res.status(404).json({ error: "Message not found" });
       }
+
+      // Check if user is sender, receiver, or admin
+      if (message.senderId !== currentUser.id && message.receiverId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(message);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/messages/by-user/:userId", async (req, res) => {
+  app.get("/api/messages/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetUserId = req.params.userId;
+      
+      // Only allow access to own messages or admin access
+      if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Access denied - can only view your own messages" });
+      }
+
       const messages = await storage.getMessagesByUser(req.params.userId);
       res.json(messages);
     } catch (error) {
@@ -1326,9 +1676,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/messages/conversation/:senderId/:receiverId", async (req, res) => {
+  app.get("/api/messages/conversation/:senderId/:receiverId", isAuthenticated, async (req: any, res) => {
     try {
-      const messages = await storage.getConversation(req.params.senderId, req.params.receiverId);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const { senderId, receiverId } = req.params;
+      
+      // Check if user is part of this conversation or admin
+      if (currentUser.id !== senderId && currentUser.id !== receiverId && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied - can only view your own conversations" });
+      }
+
+      const messages = await storage.getConversation(senderId, receiverId);
       res.json(messages);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -1360,31 +1722,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/messages/:id/read", isAuthenticated, async (req: any, res) => {
     try {
-      const message = await storage.markMessageAsRead(req.params.id);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const message = await storage.getMessage(req.params.id);
       if (!message) {
         return res.status(404).json({ error: "Message not found" });
       }
-      res.json(message);
+
+      // Only the receiver or admin can mark message as read
+      if (message.receiverId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Can only mark your own received messages as read" });
+      }
+
+      const updatedMessage = await storage.markMessageAsRead(req.params.id);
+      res.json(updatedMessage);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
   // Notification Routes
-  app.get("/api/notifications/:id", async (req, res) => {
+  app.get("/api/notifications/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const notification = await storage.getNotification(req.params.id);
       if (!notification) {
         return res.status(404).json({ error: "Notification not found" });
       }
+
+      // Check if user owns this notification or is admin
+      if (notification.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       res.json(notification);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  app.get("/api/notifications/by-user/:userId", async (req, res) => {
+  app.get("/api/notifications/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetUserId = req.params.userId;
+      
+      // Only allow access to own notifications or admin access
+      if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Access denied - can only view your own notifications" });
+      }
+
       const notifications = await storage.getNotificationsByUser(req.params.userId);
       res.json(notifications);
     } catch (error) {
@@ -1407,11 +1800,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/notifications/:id/read", isAuthenticated, async (req: any, res) => {
     try {
-      const notification = await storage.markNotificationAsRead(req.params.id);
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const notification = await storage.getNotification(req.params.id);
       if (!notification) {
         return res.status(404).json({ error: "Notification not found" });
       }
-      res.json(notification);
+
+      // Check if user owns this notification or is admin
+      if (notification.userId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Can only mark your own notifications as read" });
+      }
+
+      const updatedNotification = await storage.markNotificationAsRead(req.params.id);
+      res.json(updatedNotification);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
@@ -1419,6 +1824,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/notifications/read-all/:userId", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      const targetUserId = req.params.userId;
+      
+      // Only allow marking own notifications or admin access
+      if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
+        return res.status(403).json({ error: "Can only mark your own notifications as read" });
+      }
+
       await storage.markAllNotificationsAsRead(req.params.userId);
       res.json({ success: true });
     } catch (error) {
@@ -1536,19 +1949,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/community/posts", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const { authorId, content, images, tags } = req.body;
       if (!authorId || !content) {
         return res.status(400).json({ error: "authorId and content are required" });
       }
       
       // Ensure user is creating post from their own account
-      const currentUserId = req.user.claims.sub;
-      if (authorId !== currentUserId) {
-        const currentUser = await storage.getUser(currentUserId);
-        if (!currentUser || currentUser.role !== "admin") {
-          return res.status(403).json({ error: "Can only create posts from your own account" });
-        }
+      if (authorId !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Can only create posts from your own account" });
       }
+      
       const post = await storage.createCommunityPost(authorId, content, images, tags);
       res.status(201).json(post);
     } catch (error) {
@@ -1579,10 +1994,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/community/groups", isAuthenticated, async (req: any, res) => {
     try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const { name, description, category, createdBy } = req.body;
       if (!name || !description || !category || !createdBy) {
         return res.status(400).json({ error: "name, description, category, and createdBy are required" });
       }
+      
+      // Ensure user is creating group for themselves or is admin
+      if (createdBy !== currentUser.id && currentUser.role !== "admin") {
+        return res.status(403).json({ error: "Can only create groups for your own account" });
+      }
+      
       const group = await storage.createCommunityGroup(name, description, category, createdBy);
       res.status(201).json(group);
     } catch (error) {
