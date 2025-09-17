@@ -24,6 +24,9 @@ import Community from "@/pages/Community";
 import Timeline from "@/pages/Timeline";
 import Groups from "@/pages/Groups";
 import SavvySaver from "@/pages/SavvySaver";
+import ForumList from "@/pages/ForumList";
+import Forum from "@/pages/Forum";
+import ForumTopic from "@/pages/ForumTopic";
 import ContractorsDirectory from "@/pages/ContractorsDirectory";
 import MerchantsDirectory from "@/pages/MerchantsDirectory";
 import BadgesPage from "@/pages/BadgesPage";
@@ -92,6 +95,9 @@ function Router() {
       <Route path="/community" component={Community}/>
       <Route path="/timeline" component={Timeline}/>
       <Route path="/groups" component={Groups}/>
+      <Route path="/forums" component={ForumList}/>
+      <Route path="/forums/:forumId/topics/:topicId" component={ForumTopic}/>
+      <Route path="/forums/:forumId" component={Forum}/>
       <Route path="/profile" component={Profile}/>
       <Route path="/profile/home-details" component={HomeDetails}/>
       <Route path="/calendar" component={Calendar}/>

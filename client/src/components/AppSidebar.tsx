@@ -29,7 +29,8 @@ import {
   ShieldCheck,
   Award,
   Star,
-  Trophy
+  Trophy,
+  MessageCircle
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useState } from 'react';
@@ -72,6 +73,7 @@ const navigationItems = [
       { title: 'Groups', url: '/groups', icon: UsersRound }
     ]
   },
+  { title: 'Forums', url: '/forums', icon: MessageCircle, subtitle: 'DiscussiT!' },
 ];
 
 export function AppSidebar() {

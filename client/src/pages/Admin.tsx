@@ -25,7 +25,11 @@ import {
   Award,
   Crown,
   Trophy,
-  Cog
+  Cog,
+  Hash,
+  MessageCircle,
+  MessageSquareText,
+  Flag
 } from "lucide-react";
 
 type EntityType = 
@@ -43,7 +47,11 @@ type EntityType =
   | "badges"
   | "ranks"
   | "achievements"
-  | "maintenanceItems";
+  | "maintenanceItems"
+  | "forums"
+  | "forumTopics"
+  | "forumPosts"
+  | "forumPostVotes";
 
 interface EntityConfig {
   id: EntityType;
@@ -267,6 +275,77 @@ const entityConfigs: Record<EntityType, EntityConfig> = {
       { key: "estimatedMinutes", label: "Est. Time (min)", sortable: true },
       { key: "seasonalWindow", label: "Season", sortable: true, render: (value: string) => value ? <Badge variant="secondary">{value}</Badge> : "Any" },
       { key: "isActive", label: "Status", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Active" : "Inactive"}</Badge> }
+    ]
+  },
+  forums: {
+    id: "forums",
+    title: "Forums",
+    description: "Manage community forums and discussion boards",
+    icon: Hash,
+    columns: [
+      { key: "name", label: "Name", sortable: true },
+      { key: "description", label: "Description", sortable: true },
+      { key: "forumType", label: "Type", sortable: true, render: (value: string) => <Badge variant="outline">{value}</Badge> },
+      { key: "moderation", label: "Moderation", sortable: true, render: (value: string) => <Badge variant={value === "locked" ? "destructive" : value === "restricted" ? "secondary" : "default"}>{value}</Badge> },
+      { key: "topicCount", label: "Topics", sortable: true },
+      { key: "postCount", label: "Posts", sortable: true },
+      { key: "isPrivate", label: "Access", sortable: true, render: (value: boolean) => <Badge variant={value ? "secondary" : "default"}>{value ? "Private" : "Public"}</Badge> },
+      { key: "isActive", label: "Status", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Active" : "Inactive"}</Badge> },
+      { key: "lastActivityAt", label: "Last Activity", sortable: true, render: (value: string) => value ? new Date(value).toLocaleDateString() : "No activity" },
+      { key: "createdAt", label: "Created", sortable: true, render: (value: string) => new Date(value).toLocaleDateString() }
+    ]
+  },
+  forumTopics: {
+    id: "forumTopics",
+    title: "Forum Topics",
+    description: "Manage forum topics and discussions",
+    icon: MessageCircle,
+    columns: [
+      { key: "title", label: "Title", sortable: true },
+      { key: "forumName", label: "Forum", sortable: true },
+      { key: "authorName", label: "Author", sortable: true },
+      { key: "status", label: "Status", sortable: true, render: (value: string) => <Badge variant={value === "locked" ? "destructive" : value === "pinned" ? "default" : "outline"}>{value}</Badge> },
+      { key: "postCount", label: "Posts", sortable: true },
+      { key: "viewCount", label: "Views", sortable: true },
+      { key: "participantCount", label: "Participants", sortable: true },
+      { key: "isPinned", label: "Pinned", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Yes" : "No"}</Badge> },
+      { key: "isSolved", label: "Solved", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Yes" : "No"}</Badge> },
+      { key: "lastPostAt", label: "Last Post", sortable: true, render: (value: string) => value ? new Date(value).toLocaleDateString() : "No posts" },
+      { key: "createdAt", label: "Created", sortable: true, render: (value: string) => new Date(value).toLocaleDateString() }
+    ]
+  },
+  forumPosts: {
+    id: "forumPosts",
+    title: "Forum Posts",
+    description: "Manage forum posts and content moderation",
+    icon: MessageSquareText,
+    columns: [
+      { key: "content", label: "Content", sortable: true, render: (value: string) => <div className="max-w-xs truncate">{value}</div> },
+      { key: "topicTitle", label: "Topic", sortable: true },
+      { key: "forumName", label: "Forum", sortable: true },
+      { key: "authorName", label: "Author", sortable: true },
+      { key: "postType", label: "Type", sortable: true, render: (value: string) => <Badge variant={value === "initial" ? "default" : "outline"}>{value}</Badge> },
+      { key: "status", label: "Status", sortable: true, render: (value: string) => <Badge variant={value === "flagged" ? "destructive" : value === "pending" ? "secondary" : "default"}>{value}</Badge> },
+      { key: "score", label: "Score", sortable: true, render: (value: number) => <div className={value > 0 ? "text-green-600" : value < 0 ? "text-red-600" : ""}>{value}</div> },
+      { key: "upvotes", label: "Upvotes", sortable: true },
+      { key: "downvotes", label: "Downvotes", sortable: true },
+      { key: "replyCount", label: "Replies", sortable: true },
+      { key: "isAcceptedAnswer", label: "Accepted Answer", sortable: true, render: (value: boolean) => <Badge variant={value ? "default" : "secondary"}>{value ? "Yes" : "No"}</Badge> },
+      { key: "createdAt", label: "Created", sortable: true, render: (value: string) => new Date(value).toLocaleDateString() }
+    ]
+  },
+  forumPostVotes: {
+    id: "forumPostVotes",
+    title: "Post Votes",
+    description: "Manage forum post voting system and analytics",
+    icon: Flag,
+    columns: [
+      { key: "postContent", label: "Post", sortable: true, render: (value: string) => <div className="max-w-xs truncate">{value}</div> },
+      { key: "voterName", label: "Voter", sortable: true },
+      { key: "voteType", label: "Vote Type", sortable: true, render: (value: string) => <Badge variant={value === "up" ? "default" : "destructive"}>{value === "up" ? "Upvote" : "Downvote"}</Badge> },
+      { key: "topicTitle", label: "Topic", sortable: true },
+      { key: "forumName", label: "Forum", sortable: true },
+      { key: "createdAt", label: "Voted At", sortable: true, render: (value: string) => new Date(value).toLocaleDateString() }
     ]
   }
 };

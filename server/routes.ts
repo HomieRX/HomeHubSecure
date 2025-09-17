@@ -35,7 +35,11 @@ import {
   type ContractorProfile,
   type MerchantProfile,
   type NotificationSettings,
-  type InsertNotificationSettings
+  type InsertNotificationSettings,
+  type Forum,
+  type ForumTopic,
+  type ForumPost,
+  type ForumPostVote
 } from "@shared/schema";
 import {
   // Enhanced validation schemas
@@ -60,7 +64,17 @@ import {
   CalendarEventCreateSchema,
   CalendarEventUpdateSchema,
   DealCreateSchema,
-  DealUpdateSchema
+  DealUpdateSchema,
+  // Forum system schemas
+  ForumCreateSchema,
+  ForumUpdateSchema,
+  ForumTopicCreateSchema,
+  ForumTopicUpdateSchema,
+  ForumPostCreateSchema,
+  ForumPostUpdateSchema,
+  ForumVoteCreateSchema,
+  ForumModerationSchema,
+  ForumFlagSchema
 } from "@shared/types";
 import { 
   ServiceWorkflowManager, 
@@ -3735,6 +3749,973 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: "Internal server error", 
         message: error.message 
       });
+    }
+  });
+
+  // ======================================================================
+  // FORUM SYSTEM ENDPOINTS
+  // ======================================================================
+
+  // Helper function to check forum access permissions
+  async function checkForumAccess(forum: Forum, user: any): Promise<boolean> {
+    if (!forum.isPrivate) return true;
+    if (user.role === 'admin') return true;
+    if (forum.moderatorIds?.includes(user.id)) return true;
+    
+    // Check membership tier requirements
+    if (forum.membershipRequired) {
+      const memberProfile = await storage.getMemberProfile(user.id);
+      if (!memberProfile) return false;
+      
+      const tierHierarchy = ["HomeHUB", "HomePRO", "HomeHERO", "HomeGURU"];
+      const requiredIndex = tierHierarchy.indexOf(forum.membershipRequired);
+      const userIndex = tierHierarchy.indexOf(memberProfile.membershipTier);
+      if (userIndex < requiredIndex) return false;
+    }
+    
+    // Check required roles
+    if (forum.requiredRoles?.length && !forum.requiredRoles.includes(user.role)) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  // Helper function to check moderation permissions
+  function canModeratePost(user: any, forum: Forum, post?: ForumPost): boolean {
+    if (user.role === 'admin') return true;
+    if (forum.moderatorIds?.includes(user.id)) return true;
+    if (post && post.authorId === user.id) return true;
+    return false;
+  }
+
+  // GET /api/forums - List all accessible forums
+  app.get("/api/forums", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const { 
+        type, 
+        communityGroupId, 
+        limit = "20", 
+        offset = "0",
+        search 
+      } = req.query;
+
+      const forums = await storage.getForums({
+        forumType: type,
+        communityGroupId,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        searchTerm: search
+      });
+
+      // Filter forums based on access permissions
+      const accessibleForums = [];
+      for (const forum of forums) {
+        const hasAccess = await checkForumAccess(forum, currentUser);
+        if (hasAccess) {
+          accessibleForums.push(forum);
+        }
+      }
+
+      res.json({
+        forums: accessibleForums,
+        total: accessibleForums.length,
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      });
+    } catch (error: any) {
+      console.error("Error getting forums:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // GET /api/forums/:id - Get forum details
+  app.get("/api/forums/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.getForum(id);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const hasAccess = await checkForumAccess(forum, currentUser);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json(forum);
+    } catch (error: any) {
+      console.error("Error getting forum:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // POST /api/forums - Create new forum (admin only)
+  app.post("/api/forums", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const validation = ForumCreateSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.createForum({
+        ...validation.data,
+        createdBy: currentUser.id
+      });
+
+      res.status(201).json(forum);
+    } catch (error: any) {
+      console.error("Error creating forum:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // PUT /api/forums/:id - Update forum (admin only)
+  app.put("/api/forums/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const validation = ForumUpdateSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const forum = await storage.getForum(id);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const updatedForum = await storage.updateForum(id, validation.data);
+      res.json(updatedForum);
+    } catch (error: any) {
+      console.error("Error updating forum:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // DELETE /api/forums/:id - Delete forum (admin only)
+  app.delete("/api/forums/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      const forum = await storage.getForum(id);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      await storage.deleteForum(id);
+      res.json({ message: "Forum deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting forum:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // GET /api/forums/:forumId/topics - List topics in a forum
+  app.get("/api/forums/:forumId/topics", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId } = req.params;
+      const { 
+        limit = "20", 
+        offset = "0",
+        sort = "lastActivity", // lastActivity, created, title, votes
+        status,
+        isPinned,
+        search
+      } = req.query;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const hasAccess = await checkForumAccess(forum, currentUser);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const topics = await storage.getForumTopics({
+        forumId,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        sort,
+        status,
+        isPinned: isPinned === "true" ? true : undefined,
+        searchTerm: search
+      });
+
+      res.json({
+        topics,
+        forum: {
+          id: forum.id,
+          name: forum.name,
+          description: forum.description,
+          forumType: forum.forumType
+        },
+        pagination: {
+          limit: parseInt(limit),
+          offset: parseInt(offset),
+          total: topics.length
+        }
+      });
+    } catch (error: any) {
+      console.error("Error getting forum topics:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // GET /api/forums/:forumId/topics/:topicId - Get topic details with posts
+  app.get("/api/forums/:forumId/topics/:topicId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId } = req.params;
+      const { limit = "50", offset = "0", sort = "oldest" } = req.query;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const hasAccess = await checkForumAccess(forum, currentUser);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Support slug-based lookup
+      const topic = await storage.getForumTopic(topicId) || 
+                   await storage.getForumTopicBySlug(forumId, topicId);
+      
+      if (!topic) {
+        return res.status(404).json({ error: "Topic not found" });
+      }
+
+      if (topic.forumId !== forumId) {
+        return res.status(400).json({ error: "Topic does not belong to this forum" });
+      }
+
+      // Get posts with threading and vote counts
+      const posts = await storage.getForumPosts({
+        topicId: topic.id,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        sort,
+        includeVotes: true,
+        includeAuthor: true
+      });
+
+      // Update view count
+      await storage.updateForumTopic(topic.id, {
+        viewCount: topic.viewCount + 1,
+        lastActivityAt: new Date()
+      });
+
+      res.json({
+        topic,
+        posts,
+        forum: {
+          id: forum.id,
+          name: forum.name,
+          forumType: forum.forumType
+        },
+        pagination: {
+          limit: parseInt(limit),
+          offset: parseInt(offset)
+        }
+      });
+    } catch (error: any) {
+      console.error("Error getting topic details:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // POST /api/forums/:forumId/topics - Create new topic
+  app.post("/api/forums/:forumId/topics", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId } = req.params;
+      const validation = ForumTopicCreateSchema.safeParse({
+        ...req.body,
+        forumId
+      });
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const hasAccess = await checkForumAccess(forum, currentUser);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Check if forum is locked
+      if (forum.moderation === 'locked' && currentUser.role !== 'admin' && !forum.moderatorIds?.includes(currentUser.id)) {
+        return res.status(403).json({ error: "Forum is locked" });
+      }
+
+      const { initialPostContent, ...topicData } = validation.data;
+
+      // Create topic and initial post in transaction
+      const topic = await storage.createForumTopic({
+        ...topicData,
+        authorId: currentUser.id,
+        slug: topicData.slug || topicData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      });
+
+      // Create initial post
+      await storage.createForumPost({
+        topicId: topic.id,
+        forumId,
+        authorId: currentUser.id,
+        content: initialPostContent,
+        postType: 'initial'
+      });
+
+      // Update forum stats
+      await storage.updateForum(forumId, {
+        topicCount: forum.topicCount + 1,
+        postCount: forum.postCount + 1,
+        lastActivityAt: new Date(),
+        lastTopicId: topic.id
+      });
+
+      res.status(201).json(topic);
+    } catch (error: any) {
+      console.error("Error creating topic:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // PUT /api/forums/:forumId/topics/:topicId - Update topic
+  app.put("/api/forums/:forumId/topics/:topicId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId } = req.params;
+      const validation = ForumTopicUpdateSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const topic = await storage.getForumTopic(topicId);
+      if (!topic || topic.forumId !== forumId) {
+        return res.status(404).json({ error: "Topic not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      // Check permissions
+      const isAuthor = topic.authorId === currentUser.id;
+      const isModerator = canModeratePost(currentUser, forum);
+      
+      if (!isAuthor && !isModerator) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const updatedTopic = await storage.updateForumTopic(topicId, validation.data);
+      res.json(updatedTopic);
+    } catch (error: any) {
+      console.error("Error updating topic:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // DELETE /api/forums/:forumId/topics/:topicId - Delete topic
+  app.delete("/api/forums/:forumId/topics/:topicId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId } = req.params;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const topic = await storage.getForumTopic(topicId);
+      if (!topic || topic.forumId !== forumId) {
+        return res.status(404).json({ error: "Topic not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      // Check permissions
+      const isAuthor = topic.authorId === currentUser.id;
+      const canDelete = currentUser.role === 'admin' || isAuthor;
+      
+      if (!canDelete) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.deleteForumTopic(topicId);
+      
+      // Update forum stats
+      await storage.updateForum(forumId, {
+        topicCount: Math.max(0, forum.topicCount - 1),
+        postCount: Math.max(0, forum.postCount - topic.postCount)
+      });
+
+      res.json({ message: "Topic deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting topic:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // GET /api/forums/:forumId/topics/:topicId/posts - Get posts in topic
+  app.get("/api/forums/:forumId/topics/:topicId/posts", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId } = req.params;
+      const { 
+        limit = "50", 
+        offset = "0",
+        sort = "oldest", // oldest, newest, votes, created
+        includeDeleted = "false"
+      } = req.query;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const hasAccess = await checkForumAccess(forum, currentUser);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const topic = await storage.getForumTopic(topicId);
+      if (!topic || topic.forumId !== forumId) {
+        return res.status(404).json({ error: "Topic not found" });
+      }
+
+      const posts = await storage.getForumPosts({
+        topicId,
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        sort,
+        includeDeleted: includeDeleted === "true" && canModeratePost(currentUser, forum),
+        includeVotes: true,
+        includeAuthor: true
+      });
+
+      res.json({
+        posts,
+        topic: {
+          id: topic.id,
+          title: topic.title,
+          status: topic.status
+        },
+        pagination: {
+          limit: parseInt(limit),
+          offset: parseInt(offset)
+        }
+      });
+    } catch (error: any) {
+      console.error("Error getting posts:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // POST /api/forums/:forumId/topics/:topicId/posts - Create new post/reply
+  app.post("/api/forums/:forumId/topics/:topicId/posts", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId } = req.params;
+      const validation = ForumPostCreateSchema.safeParse({
+        ...req.body,
+        forumId,
+        topicId
+      });
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const hasAccess = await checkForumAccess(forum, currentUser);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const topic = await storage.getForumTopic(topicId);
+      if (!topic || topic.forumId !== forumId) {
+        return res.status(404).json({ error: "Topic not found" });
+      }
+
+      // Check if topic is locked
+      if ((topic.status === 'locked' || topic.isLocked) && !canModeratePost(currentUser, forum)) {
+        return res.status(403).json({ error: "Topic is locked" });
+      }
+
+      const post = await storage.createForumPost({
+        ...validation.data,
+        authorId: currentUser.id
+      });
+
+      // Update topic and forum stats
+      await storage.updateForumTopic(topicId, {
+        postCount: topic.postCount + 1,
+        lastActivityAt: new Date(),
+        lastPostId: post.id
+      });
+
+      await storage.updateForum(forumId, {
+        postCount: forum.postCount + 1,
+        lastActivityAt: new Date()
+      });
+
+      res.status(201).json(post);
+    } catch (error: any) {
+      console.error("Error creating post:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // PUT /api/forums/:forumId/topics/:topicId/posts/:postId - Update post
+  app.put("/api/forums/:forumId/topics/:topicId/posts/:postId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId, postId } = req.params;
+      const validation = ForumPostUpdateSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const post = await storage.getForumPost(postId);
+      if (!post || post.topicId !== topicId || post.forumId !== forumId) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      // Check permissions
+      const isAuthor = post.authorId === currentUser.id;
+      const isModerator = canModeratePost(currentUser, forum, post);
+      
+      if (!isAuthor && !isModerator) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const updateData = {
+        ...validation.data,
+        isEdited: true,
+        editedAt: new Date()
+      };
+
+      const updatedPost = await storage.updateForumPost(postId, updateData);
+      res.json(updatedPost);
+    } catch (error: any) {
+      console.error("Error updating post:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // DELETE /api/forums/:forumId/topics/:topicId/posts/:postId - Delete post
+  app.delete("/api/forums/:forumId/topics/:topicId/posts/:postId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId, postId } = req.params;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const post = await storage.getForumPost(postId);
+      if (!post || post.topicId !== topicId || post.forumId !== forumId) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      // Check permissions
+      const isAuthor = post.authorId === currentUser.id;
+      const canDelete = currentUser.role === 'admin' || isAuthor;
+      
+      if (!canDelete) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Soft delete for initial posts, hard delete for replies
+      if (post.postType === 'initial') {
+        await storage.updateForumPost(postId, { 
+          status: 'deleted',
+          content: '[Post deleted by author]'
+        });
+      } else {
+        await storage.deleteForumPost(postId);
+        
+        // Update topic stats
+        const topic = await storage.getForumTopic(topicId);
+        if (topic) {
+          await storage.updateForumTopic(topicId, {
+            postCount: Math.max(1, topic.postCount - 1) // Keep at least 1 for initial post
+          });
+        }
+      }
+
+      res.json({ message: "Post deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting post:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // POST /api/forums/posts/:postId/vote - Vote on post
+  app.post("/api/forums/posts/:postId/vote", isAuthenticated, async (req: any, res) => {
+    try {
+      const { postId } = req.params;
+      const validation = ForumVoteCreateSchema.safeParse({
+        ...req.body,
+        postId
+      });
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const post = await storage.getForumPost(postId);
+      if (!post) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+
+      // Check if user can vote (can't vote on own posts)
+      if (post.authorId === currentUser.id) {
+        return res.status(400).json({ error: "Cannot vote on your own post" });
+      }
+
+      const forum = await storage.getForum(post.forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      const hasAccess = await checkForumAccess(forum, currentUser);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Create or update vote
+      const existingVote = await storage.getPostVote(postId, currentUser.id);
+      
+      if (existingVote) {
+        if (existingVote.voteType === validation.data.voteType) {
+          return res.status(400).json({ error: "Already voted with this type" });
+        }
+        // Update existing vote
+        const updatedVote = await storage.updatePostVote(existingVote.id, validation.data);
+        res.json(updatedVote);
+      } else {
+        // Create new vote
+        const vote = await storage.createPostVote({
+          ...validation.data,
+          userId: currentUser.id
+        });
+        res.status(201).json(vote);
+      }
+
+      // Update post vote counts
+      const votes = await storage.getPostVotes(postId);
+      const upvotes = votes.filter(v => v.voteType === 'up').length;
+      const downvotes = votes.filter(v => v.voteType === 'down').length;
+      
+      await storage.updateForumPost(postId, {
+        upvotes,
+        downvotes,
+        score: upvotes - downvotes
+      });
+
+    } catch (error: any) {
+      console.error("Error voting on post:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // DELETE /api/forums/posts/:postId/vote - Remove vote
+  app.delete("/api/forums/posts/:postId/vote", isAuthenticated, async (req: any, res) => {
+    try {
+      const { postId } = req.params;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const post = await storage.getForumPost(postId);
+      if (!post) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+
+      const existingVote = await storage.getPostVote(postId, currentUser.id);
+      if (!existingVote) {
+        return res.status(404).json({ error: "No vote found" });
+      }
+
+      await storage.deletePostVote(existingVote.id);
+
+      // Update post vote counts
+      const votes = await storage.getPostVotes(postId);
+      const upvotes = votes.filter(v => v.voteType === 'up').length;
+      const downvotes = votes.filter(v => v.voteType === 'down').length;
+      
+      await storage.updateForumPost(postId, {
+        upvotes,
+        downvotes,
+        score: upvotes - downvotes
+      });
+
+      res.json({ message: "Vote removed successfully" });
+    } catch (error: any) {
+      console.error("Error removing vote:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // POST /api/forums/:forumId/topics/:topicId/posts/:postId/accept - Accept answer (Q&A forums)
+  app.post("/api/forums/:forumId/topics/:topicId/posts/:postId/accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const { forumId, topicId, postId } = req.params;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const forum = await storage.getForum(forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      if (forum.forumType !== 'qa') {
+        return res.status(400).json({ error: "Can only accept answers in Q&A forums" });
+      }
+
+      const topic = await storage.getForumTopic(topicId);
+      if (!topic || topic.forumId !== forumId) {
+        return res.status(404).json({ error: "Topic not found" });
+      }
+
+      // Only topic author can accept answers
+      if (topic.authorId !== currentUser.id) {
+        return res.status(403).json({ error: "Only topic author can accept answers" });
+      }
+
+      const post = await storage.getForumPost(postId);
+      if (!post || post.topicId !== topicId) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+
+      if (post.postType !== 'answer') {
+        return res.status(400).json({ error: "Can only accept answer posts" });
+      }
+
+      // Remove previous accepted answer
+      if (topic.acceptedAnswerId) {
+        await storage.updateForumPost(topic.acceptedAnswerId, {
+          isAcceptedAnswer: false,
+          acceptedAt: null,
+          acceptedBy: null
+        });
+      }
+
+      // Accept this answer
+      await storage.updateForumPost(postId, {
+        isAcceptedAnswer: true,
+        acceptedAt: new Date(),
+        acceptedBy: currentUser.id
+      });
+
+      // Mark topic as solved
+      await storage.updateForumTopic(topicId, {
+        status: 'solved',
+        isSolved: true,
+        acceptedAnswerId: postId
+      });
+
+      res.json({ message: "Answer accepted successfully" });
+    } catch (error: any) {
+      console.error("Error accepting answer:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // POST /api/forums/posts/:postId/flag - Flag post for moderation
+  app.post("/api/forums/posts/:postId/flag", isAuthenticated, async (req: any, res) => {
+    try {
+      const { postId } = req.params;
+      const validation = ForumFlagSchema.safeParse({
+        ...req.body,
+        postId
+      });
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const post = await storage.getForumPost(postId);
+      if (!post) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+
+      // Create flag/report
+      await storage.createPostFlag({
+        ...validation.data,
+        reporterId: currentUser.id
+      });
+
+      // Update post status to flagged
+      await storage.updateForumPost(postId, {
+        status: 'flagged'
+      });
+
+      res.json({ message: "Post flagged for review" });
+    } catch (error: any) {
+      console.error("Error flagging post:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
+    }
+  });
+
+  // POST /api/forums/posts/:postId/moderate - Moderate post (admin/moderator only)
+  app.post("/api/forums/posts/:postId/moderate", isAuthenticated, async (req: any, res) => {
+    try {
+      const { postId } = req.params;
+      const validation = ForumModerationSchema.safeParse({
+        ...req.body,
+        postId
+      });
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: validation.error.errors
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const post = await storage.getForumPost(postId);
+      if (!post) {
+        return res.status(404).json({ error: "Post not found" });
+      }
+
+      const forum = await storage.getForum(post.forumId);
+      if (!forum) {
+        return res.status(404).json({ error: "Forum not found" });
+      }
+
+      if (!canModeratePost(currentUser, forum, post)) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      await storage.updateForumPost(postId, {
+        status: validation.data.status,
+        moderatedBy: currentUser.id,
+        moderatedAt: new Date(),
+        moderatorReason: validation.data.moderatorReason
+      });
+
+      res.json({ message: "Post moderated successfully" });
+    } catch (error: any) {
+      console.error("Error moderating post:", error);
+      res.status(500).json({ error: "Internal server error", message: error.message });
     }
   });
 
