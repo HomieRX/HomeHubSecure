@@ -24,7 +24,12 @@ import {
   // Scheduling system types
   type TimeSlot, type InsertTimeSlot,
   type ScheduleConflict, type InsertScheduleConflict,
-  type ScheduleAuditLog, type InsertScheduleAuditLog
+  type ScheduleAuditLog, type InsertScheduleAuditLog,
+  // Forum system types
+  type Forum, type InsertForum,
+  type ForumTopic, type InsertForumTopic,
+  type ForumPost, type InsertForumPost,
+  type ForumPostVote, type InsertForumPostVote
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -185,6 +190,81 @@ export interface IStorage {
   getCommunityGroups(): Promise<CommunityGroup[]>;
   getCommunityGroup(id: string): Promise<CommunityGroup | undefined>;
   createCommunityGroup(name: string, description: string, category: string, createdBy: string): Promise<CommunityGroup>;
+  
+  // Forums
+  getForum(id: string): Promise<Forum | undefined>;
+  getForums(filters?: { isActive?: boolean; forumType?: string; communityGroupId?: string; isPrivate?: boolean }): Promise<Forum[]>;
+  getForumsByGroup(communityGroupId: string): Promise<Forum[]>;
+  getPublicForums(): Promise<Forum[]>; // Forums available to all users
+  createForum(forum: InsertForum): Promise<Forum>;
+  updateForum(id: string, updates: Partial<InsertForum>): Promise<Forum | undefined>;
+  deleteForum(id: string): Promise<boolean>;
+  
+  // Forum Topics
+  getForumTopic(id: string): Promise<ForumTopic | undefined>;
+  getForumTopicBySlug(forumId: string, slug: string): Promise<ForumTopic | undefined>;
+  getForumTopics(
+    forumId: string, 
+    filters?: { 
+      status?: string; 
+      isPinned?: boolean; 
+      isLocked?: boolean; 
+      isSolved?: boolean;
+      authorId?: string;
+      tags?: string[];
+    }
+  ): Promise<ForumTopic[]>;
+  getTopicsByAuthor(authorId: string): Promise<ForumTopic[]>;
+  getRecentTopics(limit?: number): Promise<ForumTopic[]>; // Cross-forum recent topics
+  getTrendingTopics(limit?: number): Promise<ForumTopic[]>; // Based on activity
+  createForumTopic(topic: InsertForumTopic): Promise<ForumTopic>;
+  updateForumTopic(id: string, updates: Partial<InsertForumTopic>): Promise<ForumTopic | undefined>;
+  pinTopic(id: string, isPinned: boolean): Promise<ForumTopic | undefined>;
+  lockTopic(id: string, isLocked: boolean): Promise<ForumTopic | undefined>;
+  solveTopic(id: string, isSolved: boolean, acceptedAnswerId?: string): Promise<ForumTopic | undefined>;
+  incrementTopicViews(id: string): Promise<ForumTopic | undefined>;
+  deleteForumTopic(id: string): Promise<boolean>;
+  
+  // Forum Posts
+  getForumPost(id: string): Promise<ForumPost | undefined>;
+  getForumPosts(
+    topicId: string,
+    filters?: {
+      status?: string;
+      parentPostId?: string | null; // null = top-level posts, string = replies to that post
+      postType?: string;
+      authorId?: string;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<ForumPost[]>;
+  getPostsByAuthor(authorId: string, limit?: number): Promise<ForumPost[]>;
+  getTopLevelPosts(topicId: string): Promise<ForumPost[]>; // Posts with no parent (level 0)
+  getPostReplies(parentPostId: string): Promise<ForumPost[]>; // Direct replies to a post
+  getPostThread(postId: string): Promise<ForumPost[]>; // Get full thread starting from a post
+  createForumPost(post: InsertForumPost): Promise<ForumPost>;
+  updateForumPost(id: string, updates: Partial<InsertForumPost>): Promise<ForumPost | undefined>;
+  markPostAsAnswer(postId: string, topicId: string, acceptedBy: string): Promise<ForumPost | undefined>;
+  unmarkPostAsAnswer(postId: string, topicId: string): Promise<ForumPost | undefined>;
+  deleteForumPost(id: string): Promise<boolean>;
+  
+  // Forum Post Voting
+  getPostVote(postId: string, userId: string): Promise<ForumPostVote | undefined>;
+  getPostVotes(postId: string): Promise<ForumPostVote[]>;
+  createPostVote(vote: InsertForumPostVote): Promise<ForumPostVote>;
+  updatePostVote(postId: string, userId: string, voteType: 'up' | 'down'): Promise<ForumPostVote | undefined>;
+  removePostVote(postId: string, userId: string): Promise<boolean>;
+  getPostScore(postId: string): Promise<{ upvotes: number; downvotes: number; score: number }>;
+  
+  // Forum Statistics and Analytics
+  getForumStats(forumId: string): Promise<{ topicCount: number; postCount: number; participantCount: number }>;
+  getTopicStats(topicId: string): Promise<{ postCount: number; participantCount: number; viewCount: number }>;
+  getUserForumActivity(userId: string): Promise<{ topicCount: number; postCount: number; votesReceived: number }>;
+  
+  // Forum Moderation
+  moderatePost(postId: string, status: string, moderatorId: string): Promise<ForumPost | undefined>;
+  flagPost(postId: string, userId: string, reason: string): Promise<void>;
+  getFlaggedPosts(forumId?: string): Promise<ForumPost[]>;
   
   // Gamification - Badges
   getBadge(id: string): Promise<Badge | undefined>;
