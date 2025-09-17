@@ -400,7 +400,10 @@ export const workOrders = pgTable("work_orders", {
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  // Unique constraint: one work order per service request
+  uniqueServiceRequest: unique("unique_work_order_service_request").on(table.serviceRequestId),
+}));
 
 export const estimates = pgTable("estimates", {
   id: varchar("id")
@@ -442,8 +445,9 @@ export const invoices = pgTable("invoices", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   workOrderId: varchar("work_order_id")
-    .notNull()
     .references(() => workOrders.id),
+  estimateId: varchar("estimate_id")
+    .references(() => estimates.id),
   memberId: varchar("member_id")
     .notNull()
     .references(() => memberProfiles.id),
@@ -464,13 +468,20 @@ export const invoices = pgTable("invoices", {
   dueDate: timestamp("due_date").notNull(),
   paidAt: timestamp("paid_at"),
   paymentMethod: text("payment_method"),
-  paymentTransactionId: text("payment_transaction_id"),
+  transactionId: text("transaction_id"),
   lineItems: jsonb("line_items").notNull(), // detailed breakdown of charges
   notes: text("notes"),
   sentAt: timestamp("sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  // Unique constraints for data integrity and race condition prevention
+  uniqueWorkOrder: unique("unique_invoice_work_order").on(table.workOrderId),
+  uniqueEstimate: unique("unique_invoice_estimate").on(table.estimateId), 
+  uniqueTransaction: unique("unique_invoice_transaction").on(table.transactionId),
+  // Check constraint: invoice must be linked to either work order OR estimate, not both
+  checkInvoiceSource: sql`CHECK ((work_order_id IS NOT NULL AND estimate_id IS NULL) OR (work_order_id IS NULL AND estimate_id IS NOT NULL))`,
+}));
 
 export const loyaltyPointTransactions = pgTable("loyalty_point_transactions", {
   id: varchar("id")

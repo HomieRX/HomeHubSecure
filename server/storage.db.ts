@@ -29,6 +29,44 @@ import {
 } from "@shared/schema";
 import { IStorage } from "./storage";
 
+// Custom error types for transactional flows
+class TransactionError extends Error {
+  constructor(message: string, public code: string, public details?: any) {
+    super(message);
+    this.name = 'TransactionError';
+  }
+}
+
+class InvalidStatusTransitionError extends TransactionError {
+  constructor(currentStatus: string, requestedStatus: string, entityType: string) {
+    super(
+      `Cannot transition ${entityType} from '${currentStatus}' to '${requestedStatus}'`,
+      'INVALID_STATUS_TRANSITION',
+      { currentStatus, requestedStatus, entityType }
+    );
+  }
+}
+
+class ReferentialIntegrityError extends TransactionError {
+  constructor(entityType: string, id: string) {
+    super(
+      `Referenced ${entityType} with id '${id}' does not exist`,
+      'REFERENTIAL_INTEGRITY_ERROR',
+      { entityType, id }
+    );
+  }
+}
+
+class DuplicateOperationError extends TransactionError {
+  constructor(operation: string, identifier: string) {
+    super(
+      `Duplicate ${operation} detected for identifier '${identifier}'`,
+      'DUPLICATE_OPERATION_ERROR',
+      { operation, identifier }
+    );
+  }
+}
+
 // Helper to merge updates without writing undefined values
 function applyDefined<T>(base: T, updates: Partial<Record<keyof T, unknown>>): T {
   const result = { ...base };
@@ -351,21 +389,80 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  // Transactional flow: Assign Service Request → Create Work Order
+  // Transactional flow: Assign Service Request → Create Work Order (Hardened)
   async assignServiceRequest(id: string, homeManagerId: string): Promise<ServiceRequest | undefined> {
     return await db.transaction(async (tx) => {
-      // Update the service request status and assign the home manager
+      // First, check if service request exists and is in pending status
+      const [currentRequest] = await tx.select()
+        .from(serviceRequests)
+        .where(eq(serviceRequests.id, id))
+        .limit(1);
+
+      if (!currentRequest) {
+        throw new ReferentialIntegrityError("service_request", id);
+      }
+
+      // Status guard: only allow pending → assigned transition
+      if (currentRequest.status !== "pending") {
+        throw new InvalidStatusTransitionError(
+          currentRequest.status, 
+          "assigned", 
+          "service_request"
+        );
+      }
+
+      // Verify the home manager/contractor exists and is active
+      const [manager] = await tx.select()
+        .from(users)
+        .where(and(
+          eq(users.id, homeManagerId),
+          eq(users.isActive, true)
+        ))
+        .limit(1);
+
+      if (!manager) {
+        throw new ReferentialIntegrityError("user/manager", homeManagerId);
+      }
+
+      // Additional check: verify the user has appropriate role (contractor or admin)
+      if (!["contractor", "admin"].includes(manager.role)) {
+        throw new TransactionError(
+          `User with role '${manager.role}' cannot be assigned as home manager`,
+          "INVALID_ROLE_ASSIGNMENT",
+          { userId: homeManagerId, role: manager.role }
+        );
+      }
+
+      // Check if a work order already exists for this service request to prevent duplicates
+      const existingWorkOrders = await tx.select()
+        .from(workOrders)
+        .where(eq(workOrders.serviceRequestId, id))
+        .limit(1);
+
+      if (existingWorkOrders.length > 0) {
+        throw new DuplicateOperationError("work order creation", id);
+      }
+
+      // Update the service request with WHERE clause guard for atomic assignment
       const [updatedRequest] = await tx.update(serviceRequests)
         .set({ 
           homeManagerId,
-          status: "assigned"
+          status: "assigned",
+          assignedAt: new Date(),
+          updatedAt: new Date()
         })
-        .where(eq(serviceRequests.id, id))
+        .where(and(
+          eq(serviceRequests.id, id),
+          eq(serviceRequests.status, "pending") // Additional guard at DB level
+        ))
         .returning();
 
       if (!updatedRequest) {
-        throw new Error("Service request not found");
+        throw new InvalidStatusTransitionError("pending", "assigned", "service_request");
       }
+
+      // Generate unique work order number
+      const workOrderNumber = `WO-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       // Create a work order for the assigned service request
       await tx.insert(workOrders).values({
@@ -373,7 +470,9 @@ export class DbStorage implements IStorage {
         contractorId: homeManagerId,
         status: "created",
         workDescription: `Work order for service request: ${updatedRequest.title}`,
-        workOrderNumber: `WO-${Date.now()}`
+        workOrderNumber,
+        scheduledStartDate: updatedRequest.preferredDateTime || null,
+        estimatedDuration: updatedRequest.estimatedDuration || null
       });
 
       return updatedRequest;
@@ -482,51 +581,116 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  // Transactional flow: Approve Estimate → Create Invoice
+  // Transactional flow: Approve Estimate → Create Invoice (Hardened)
   async approveEstimate(id: string): Promise<Estimate | undefined> {
     return await db.transaction(async (tx) => {
-      // Update the estimate status to approved
+      // First, check if estimate exists and is in pending status
+      const [currentEstimate] = await tx.select()
+        .from(estimates)
+        .where(eq(estimates.id, id))
+        .limit(1);
+
+      if (!currentEstimate) {
+        throw new ReferentialIntegrityError("estimate", id);
+      }
+
+      // Status guard: only allow pending → approved transition
+      if (currentEstimate.status !== "pending") {
+        throw new InvalidStatusTransitionError(
+          currentEstimate.status, 
+          "approved", 
+          "estimate"
+        );
+      }
+
+      // Check if an invoice already exists for this estimate using proper FK (SECURITY FIX)
+      const existingInvoices = await tx.select()
+        .from(invoices)
+        .where(eq(invoices.estimateId, id))
+        .limit(1);
+
+      if (existingInvoices.length > 0) {
+        throw new DuplicateOperationError("invoice creation", id);
+      }
+
+      // RACE CONDITION FIX: Do status transition first, then work order creation
+      // Update the estimate status to approved with WHERE clause guard
       const [approvedEstimate] = await tx.update(estimates)
-        .set(applyDefined({}, { 
+        .set({ 
           status: "approved" as const,
           respondedAt: new Date(),
           updatedAt: new Date()
-        }))
-        .where(eq(estimates.id, id))
+        })
+        .where(and(
+          eq(estimates.id, id),
+          eq(estimates.status, "pending") // Additional guard at DB level
+        ))
         .returning();
 
       if (!approvedEstimate) {
-        throw new Error("Estimate not found");
+        throw new InvalidStatusTransitionError("pending", "approved", "estimate");
       }
 
-      // Get the service request to find the member
+      // Get the service request and verify it exists
       const [serviceRequest] = await tx.select()
         .from(serviceRequests)
-        .where(eq(serviceRequests.id, approvedEstimate.serviceRequestId))
+        .where(eq(serviceRequests.id, currentEstimate.serviceRequestId))
         .limit(1);
 
       if (!serviceRequest) {
-        throw new Error("Service request not found");
+        throw new ReferentialIntegrityError("service_request", currentEstimate.serviceRequestId);
       }
 
-      // Generate a unique invoice number
-      const invoiceNumber = `INV-${Date.now()}`;
+      // Find or create a work order for this service request with ON CONFLICT handling
+      let [workOrder] = await tx.select()
+        .from(workOrders)
+        .where(eq(workOrders.serviceRequestId, currentEstimate.serviceRequestId))
+        .limit(1);
+
+      if (!workOrder) {
+        // Create work order if it doesn't exist (DB unique constraint will prevent duplicates)
+        try {
+          [workOrder] = await tx.insert(workOrders).values({
+            serviceRequestId: currentEstimate.serviceRequestId,
+            contractorId: currentEstimate.contractorId,
+            status: "created",
+            workDescription: `Work order for estimate: ${currentEstimate.title}`,
+            workOrderNumber: `WO-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          }).returning();
+        } catch (error: any) {
+          // Handle potential race condition where work order was created by another transaction
+          if (error.code === '23505') { // PostgreSQL unique constraint violation
+            [workOrder] = await tx.select()
+              .from(workOrders)
+              .where(eq(workOrders.serviceRequestId, currentEstimate.serviceRequestId))
+              .limit(1);
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      // Generate a unique invoice number with timestamp and random component
+      const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
-      // Create an invoice based on the approved estimate
+      // Create an invoice based on the approved estimate using new FK structure
       await tx.insert(invoices).values({
-        workOrderId: "temp-work-order-id", // This needs proper work order creation
+        estimateId: approvedEstimate.id, // Direct FK reference (SECURITY FIX)
         memberId: serviceRequest.memberId,
         invoiceNumber,
         subtotal: approvedEstimate.totalCost,
-        tax: "0.00",
+        tax: "0.00", // TODO: Calculate tax based on location
         total: approvedEstimate.totalCost,
         amountDue: approvedEstimate.totalCost,
         lineItems: [{
           description: approvedEstimate.description,
           amount: approvedEstimate.totalCost,
-          quantity: 1
+          quantity: 1,
+          referenceId: approvedEstimate.id, // Keep for compatibility
+          referenceType: "estimate"
         }],
-        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        status: "sent" // Ready for payment
       });
 
       return approvedEstimate;
@@ -589,10 +753,45 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  // Transactional flow: Pay Invoice → Status Update + Loyalty Points Ledger
+  // Transactional flow: Pay Invoice → Status Update + Loyalty Points Ledger (Hardened)
   async payInvoice(id: string, paymentMethod: string, transactionId: string): Promise<Invoice | undefined> {
     return await db.transaction(async (tx) => {
-      // Update the invoice status to paid
+      // First, check if invoice exists and is in payable status
+      const [currentInvoice] = await tx.select()
+        .from(invoices)
+        .where(eq(invoices.id, id))
+        .limit(1);
+
+      if (!currentInvoice) {
+        throw new ReferentialIntegrityError("invoice", id);
+      }
+
+      // Status guard: only allow sent → paid transition
+      if (currentInvoice.status !== "sent") {
+        throw new InvalidStatusTransitionError(
+          currentInvoice.status, 
+          "paid", 
+          "invoice"
+        );
+      }
+
+      // RACE CONDITION FIX: Atomic check for existing payment with same transaction
+      const existingPayment = await tx.select()
+        .from(invoices)
+        .where(eq(invoices.transactionId, transactionId))
+        .limit(1);
+
+      if (existingPayment.length > 0) {
+        if (existingPayment[0].id === id && existingPayment[0].status === "paid") {
+          // Same invoice, same transaction - return existing result (idempotent)
+          return existingPayment[0];
+        } else {
+          // Different invoice or invalid state - conflict
+          throw new DuplicateOperationError("payment transaction", transactionId);
+        }
+      }
+
+      // Atomic update with comprehensive WHERE clause for race condition protection
       const [paidInvoice] = await tx.update(invoices)
         .set({ 
           status: "paid",
@@ -601,26 +800,59 @@ export class DbStorage implements IStorage {
           paidAt: new Date(),
           updatedAt: new Date()
         })
-        .where(eq(invoices.id, id))
+        .where(and(
+          eq(invoices.id, id),
+          eq(invoices.status, "sent"), // Status guard
+          sql`transaction_id IS NULL` // Ensure not already paid (race protection)
+        ))
         .returning();
 
       if (!paidInvoice) {
-        throw new Error("Invoice not found");
+        // Could be due to race condition or invalid status - check what happened
+        const [currentState] = await tx.select()
+          .from(invoices)
+          .where(eq(invoices.id, id))
+          .limit(1);
+        
+        if (currentState?.status === "paid") {
+          throw new DuplicateOperationError("invoice payment", id);
+        } else {
+          throw new InvalidStatusTransitionError(currentState?.status || "unknown", "paid", "invoice");
+        }
       }
 
-      // Calculate loyalty points (1% of invoice amount as points)
-      const loyaltyPoints = Math.floor(Number(paidInvoice.amount) * 0.01);
+      // Calculate loyalty points (1% of invoice total, not amount)
+      const invoiceTotal = Number(paidInvoice.total);
+      const loyaltyPoints = Math.floor(invoiceTotal * 0.01);
 
-      // Add loyalty points to member's account (ledger entry)
+      // Verify member exists before adding loyalty points
+      const [member] = await tx.select()
+        .from(memberProfiles)
+        .where(eq(memberProfiles.id, paidInvoice.memberId))
+        .limit(1);
+
+      if (!member) {
+        throw new ReferentialIntegrityError("member_profile", paidInvoice.memberId);
+      }
+
+      // Add loyalty points to member's account (ledger entry) - only if points > 0
       if (loyaltyPoints > 0) {
         await tx.insert(loyaltyPointTransactions).values({
           memberId: paidInvoice.memberId,
           transactionType: "earned",
           points: loyaltyPoints,
-          description: `Points earned from invoice payment #${paidInvoice.id}`,
+          description: `Points earned from invoice payment #${paidInvoice.invoiceNumber}`,
           referenceId: paidInvoice.id,
           referenceType: "invoice_payment"
         });
+
+        // Update member's loyalty points balance
+        await tx.update(memberProfiles)
+          .set({
+            loyaltyPoints: sql`${memberProfiles.loyaltyPoints} + ${loyaltyPoints}`,
+            updatedAt: new Date()
+          })
+          .where(eq(memberProfiles.id, paidInvoice.memberId));
       }
 
       return paidInvoice;
@@ -1042,5 +1274,13 @@ export class DbStorage implements IStorage {
     return result.length > 0;
   }
 }
+
+// Export error types for use in other modules
+export {
+  TransactionError,
+  InvalidStatusTransitionError,
+  ReferentialIntegrityError,
+  DuplicateOperationError
+};
 
 // Export DbStorage class for factory use
