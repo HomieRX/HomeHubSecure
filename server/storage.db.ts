@@ -255,14 +255,18 @@ export class DbStorage implements IStorage {
   }
 
   async getContractors(filters?: { isVerified?: boolean; isActive?: boolean; specialties?: string[]; location?: string }): Promise<ContractorProfile[]> {
-    let query = db.select().from(contractorProfiles);
-
+    const conditions = [];
+    
     if (filters?.isVerified !== undefined) {
-      query = query.where(eq(contractorProfiles.isVerified, filters.isVerified));
+      conditions.push(eq(contractorProfiles.isVerified, filters.isVerified));
     }
     if (filters?.isActive !== undefined) {
-      query = query.where(eq(contractorProfiles.isActive, filters.isActive));
+      conditions.push(eq(contractorProfiles.isActive, filters.isActive));
     }
+
+    const query = conditions.length > 0 
+      ? db.select().from(contractorProfiles).where(and(...conditions))
+      : db.select().from(contractorProfiles);
 
     return await query;
   }
@@ -313,14 +317,18 @@ export class DbStorage implements IStorage {
   }
 
   async getMerchants(filters?: { isVerified?: boolean; isActive?: boolean; businessType?: string; location?: string }): Promise<MerchantProfile[]> {
-    let query = db.select().from(merchantProfiles);
-
+    const conditions = [];
+    
     if (filters?.isVerified !== undefined) {
-      query = query.where(eq(merchantProfiles.isVerified, filters.isVerified));
+      conditions.push(eq(merchantProfiles.isVerified, filters.isVerified));
     }
     if (filters?.isActive !== undefined) {
-      query = query.where(eq(merchantProfiles.isActive, filters.isActive));
+      conditions.push(eq(merchantProfiles.isActive, filters.isActive));
     }
+
+    const query = conditions.length > 0 
+      ? db.select().from(merchantProfiles).where(and(...conditions))
+      : db.select().from(merchantProfiles);
 
     return await query;
   }

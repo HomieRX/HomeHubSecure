@@ -105,6 +105,13 @@ async function checkAndSetFirstUserAsAdmin(userId: string): Promise<boolean> {
     return true;
   }
   
+  // Gate admin bootstrap behind environment flags
+  // Only allow automatic admin bootstrap in development or when explicitly enabled
+  const adminBootstrapEnabled = process.env.ADMIN_BOOTSTRAP === "1" || process.env.NODE_ENV === "development";
+  if (!adminBootstrapEnabled) {
+    return false;
+  }
+  
   // Check if any admin users exist
   try {
     const existingUser = await storage.getUser(userId);
@@ -116,14 +123,14 @@ async function checkAndSetFirstUserAsAdmin(userId: string): Promise<boolean> {
     // Note: This is a basic implementation - in production you'd want more sophisticated logic
     const allUsers = await storage.getAllUsers?.();
     if (!allUsers || allUsers.length === 0) {
-      console.log(`Setting first user ${userId} as admin`);
+      console.log(`Setting first user ${userId} as admin (development mode)`);
       return true;
     }
     
     // Check if no admin exists yet
     const hasAdmin = allUsers.some(user => user.role === "admin");
     if (!hasAdmin) {
-      console.log(`No admin found, setting user ${userId} as admin`);
+      console.log(`No admin found, setting user ${userId} as admin (development mode)`);
       return true;
     }
   } catch (error) {
