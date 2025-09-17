@@ -1589,4 +1589,28 @@ export class MemStorage implements IStorage {
   }
 }
 
+// Storage factory for switching between implementations
+export async function createStorage(): Promise<IStorage> {
+  const storageBackend = process.env.STORAGE_BACKEND || "memory";
+  
+  if (storageBackend === "database") {
+    console.log("🗄️ Using database storage with PostgreSQL");
+    const { DbStorage } = await import("./storage.db.js");
+    return new DbStorage();
+  } else {
+    console.log("💾 Using in-memory storage");
+    return new MemStorage();
+  }
+}
+
+// Export storage instance - initialized asynchronously
+let _storage: IStorage | null = null;
+export async function getStorage(): Promise<IStorage> {
+  if (!_storage) {
+    _storage = await createStorage();
+  }
+  return _storage;
+}
+
+// For compatibility with existing synchronous code, create memory storage by default
 export const storage = new MemStorage();

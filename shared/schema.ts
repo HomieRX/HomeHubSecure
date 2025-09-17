@@ -1282,3 +1282,6 @@ export type InsertBundleAuditLog = z.infer<typeof insertBundleAuditLogSchema>;
 export type BundleAuditLog = typeof bundleAuditLogs.$inferSelect;
 export type InsertBundleNotification = z.infer<typeof insertBundleNotificationSchema>;
 export type BundleNotification = typeof bundleNotifications.$inferSelect;
+
+// Performance Indexes for commonly queried fields
+// Note: These indexes improve query performance for frequently accessed data
