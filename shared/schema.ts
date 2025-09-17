@@ -395,6 +395,7 @@ export const workOrders = pgTable("work_orders", {
   completionNotes: text("completion_notes"),
   beforeImages: jsonb("before_images").$type<string[]>(),
   afterImages: jsonb("after_images").$type<string[]>(),
+  attachments: jsonb("attachments").$type<string[]>(),
   memberSignature: text("member_signature"), // digital signature
   contractorSignature: text("contractor_signature"),
   completedAt: timestamp("completed_at"),
@@ -436,6 +437,7 @@ export const estimates = pgTable("estimates", {
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
   respondedAt: timestamp("responded_at"),
   notes: text("notes"),
+  attachments: jsonb("attachments").$type<string[]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

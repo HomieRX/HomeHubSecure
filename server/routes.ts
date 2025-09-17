@@ -63,6 +63,17 @@ import {
   MEMBERSHIP_BENEFITS,
   type ServiceType 
 } from "./serviceWorkflow";
+import { 
+  uploadService, 
+  uploadMiddleware, 
+  UploadError,
+  type FileUploadRequest 
+} from "./uploads";
+import { 
+  ObjectStorageService, 
+  ObjectNotFoundError 
+} from "./objectStorage";
+import { ObjectPermission } from "./objectAcl";
 
 // PII Sanitization Functions for Public Endpoints
 function sanitizeMemberProfile(profile: MemberProfile) {
@@ -2820,6 +2831,168 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Maintenance item deleted successfully" });
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // File Upload Routes (PROTECTED)
+  const objectStorageService = new ObjectStorageService();
+
+  // Upload files endpoint - supports multiple files
+  app.post('/api/uploads', isAuthenticated, uploadMiddleware.array('files', 5), async (req: FileUploadRequest, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+        return res.status(400).json({ error: "No files provided" });
+      }
+
+      const uploadedFiles = await uploadService.uploadFiles(req.files, userId);
+      
+      res.json({
+        message: "Files uploaded successfully",
+        files: uploadedFiles
+      });
+    } catch (error) {
+      console.error("Error uploading files:", error);
+      
+      if (error instanceof UploadError) {
+        return res.status(error.statusCode).json({ 
+          error: error.message,
+          code: error.code 
+        });
+      }
+      
+      res.status(500).json({ error: "Failed to upload files" });
+    }
+  });
+
+  // Get upload URL for direct upload
+  app.post('/api/uploads/signed-url', isAuthenticated, async (req: any, res) => {
+    try {
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error generating upload URL:", error);
+      res.status(500).json({ error: "Failed to generate upload URL" });
+    }
+  });
+
+  // Get file metadata endpoint
+  app.get('/api/uploads/:key/metadata', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { key } = req.params;
+
+      const metadata = await uploadService.getFileMetadata(key, userId);
+      res.json(metadata);
+    } catch (error) {
+      console.error("Error getting file metadata:", error);
+      
+      if (error instanceof UploadError) {
+        return res.status(error.statusCode).json({ 
+          error: error.message,
+          code: error.code 
+        });
+      }
+      
+      res.status(500).json({ error: "Failed to get file metadata" });
+    }
+  });
+
+  // Download file endpoint - returns signed URL
+  app.get('/api/uploads/:key', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { key } = req.params;
+      const ttl = parseInt(req.query.ttl as string) || 3600; // Default 1 hour
+
+      const downloadUrl = await uploadService.getDownloadUrl(key, userId, ttl);
+      
+      res.json({ 
+        downloadUrl,
+        expiresIn: ttl 
+      });
+    } catch (error) {
+      console.error("Error getting download URL:", error);
+      
+      if (error instanceof UploadError) {
+        return res.status(error.statusCode).json({ 
+          error: error.message,
+          code: error.code 
+        });
+      }
+      
+      res.status(500).json({ error: "Failed to get download URL" });
+    }
+  });
+
+  // Delete file endpoint
+  app.delete('/api/uploads/:key', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { key } = req.params;
+
+      const deleted = await uploadService.deleteFile(key, userId);
+      
+      if (deleted) {
+        res.json({ message: "File deleted successfully" });
+      } else {
+        res.status(500).json({ error: "Failed to delete file" });
+      }
+    } catch (error) {
+      console.error("Error deleting file:", error);
+      
+      if (error instanceof UploadError) {
+        return res.status(error.statusCode).json({ 
+          error: error.message,
+          code: error.code 
+        });
+      }
+      
+      res.status(500).json({ error: "Failed to delete file" });
+    }
+  });
+
+  // Serve private objects with ACL checks
+  app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: userId,
+        requestedPermission: ObjectPermission.READ,
+      });
+      
+      if (!canAccess) {
+        return res.sendStatus(403);
+      }
+      
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error checking object access:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
+  });
+
+  // Serve public objects
+  app.get("/public-objects/:filePath(*)", async (req, res) => {
+    const filePath = req.params.filePath;
+    try {
+      const file = await objectStorageService.searchPublicObject(filePath);
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      objectStorageService.downloadObject(file, res);
+    } catch (error) {
+      console.error("Error searching for public object:", error);
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 
