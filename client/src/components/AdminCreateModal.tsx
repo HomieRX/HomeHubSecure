@@ -148,10 +148,10 @@ const getDefaultValues = (entityType: EntityType) => {
         hourlyRate: "",
         licenseNumber: "",
         licenseType: "",
-        licenseExpiryDate: "",
+        licenseExpiryDate: null,
         insuranceProvider: "",
         insurancePolicyNumber: "",
-        insuranceExpiryDate: "",
+        insuranceExpiryDate: null,
         bondingProvider: "",
         bondingAmount: "",
         bio: "",
@@ -196,7 +196,7 @@ const getDefaultValues = (entityType: EntityType) => {
         city: "",
         state: "",
         zipCode: "",
-        preferredDateTime: "",
+        preferredDateTime: null,
         isSeasonalService: false,
         seasonalWindow: "",
         slotDuration: 60,
@@ -217,8 +217,8 @@ const getDefaultValues = (entityType: EntityType) => {
         homeManagerId: "",
         contractorId: "",
         workOrderNumber: "",
-        scheduledStartDate: "",
-        scheduledEndDate: "",
+        scheduledStartDate: null,
+        scheduledEndDate: null,
         workDescription: "",
         materialsNeeded: {},
         laborHours: "",
@@ -238,12 +238,12 @@ const getDefaultValues = (entityType: EntityType) => {
         additionalCosts: "0.00",
         totalCost: "",
         estimatedHours: "",
-        startDate: "",
-        completionDate: "",
+        startDate: null,
+        completionDate: null,
         materials: {},
         laborBreakdown: {},
         terms: "",
-        validUntil: "",
+        validUntil: null,
         notes: ""
       };
     case "invoices":
@@ -258,7 +258,7 @@ const getDefaultValues = (entityType: EntityType) => {
         loyaltyPointsValue: "0.00",
         amountDue: "",
         loyaltyPointsEarned: 0,
-        dueDate: "",
+        dueDate: null,
         paymentMethod: "",
         paymentTransactionId: "",
         lineItems: {},
@@ -274,8 +274,8 @@ const getDefaultValues = (entityType: EntityType) => {
         discountValue: "",
         originalPrice: "",
         finalPrice: "",
-        validFrom: "",
-        validUntil: "",
+        validFrom: null,
+        validUntil: null,
         isExclusive: false,
         membershipRequired: "HomeHUB",
         maxUses: 100,
@@ -302,8 +302,8 @@ const getDefaultValues = (entityType: EntityType) => {
         userId: "",
         title: "",
         description: "",
-        startTime: "",
-        endTime: "",
+        startTime: null,
+        endTime: null,
         eventType: "",
         location: "",
         attendees: {},
@@ -519,7 +519,51 @@ export default function AdminCreateModal({ isOpen, onClose, entityType, title }:
   const onSubmit = async (data: any) => {
     setIsSubmitting(true);
     try {
-      await createMutation.mutateAsync(data);
+      // Transform datetime-local strings to proper Date objects for date fields
+      const transformedData = { ...data };
+      
+      // Define date fields for each entity type
+      const dateFieldsMap: Record<EntityType, string[]> = {
+        contractorProfiles: ['licenseExpiryDate', 'insuranceExpiryDate'],
+        serviceRequests: ['preferredDateTime'],
+        workOrders: ['scheduledStartDate', 'scheduledEndDate'],
+        estimates: ['startDate', 'completionDate', 'validUntil'],
+        invoices: ['dueDate'],
+        deals: ['validFrom', 'validUntil'],
+        calendarEvents: ['startTime', 'endTime'],
+        users: [],
+        memberProfiles: [],
+        merchantProfiles: [],
+        messages: [],
+        badges: [],
+        ranks: [],
+        achievements: [],
+        maintenanceItems: [],
+        forums: [],
+        forumTopics: [],
+        forumPosts: [],
+        forumPostVotes: []
+      };
+      
+      // Transform date fields for current entity type
+      const dateFields = dateFieldsMap[entityType] || [];
+      dateFields.forEach(field => {
+        if (transformedData[field] && transformedData[field] !== '') {
+          // Convert datetime-local string to Date object, then to ISO string
+          const dateValue = new Date(transformedData[field]);
+          if (!isNaN(dateValue.getTime())) {
+            transformedData[field] = dateValue.toISOString();
+          } else {
+            // If invalid date, set to null
+            transformedData[field] = null;
+          }
+        } else {
+          // If empty or null, ensure it's null
+          transformedData[field] = null;
+        }
+      });
+      
+      await createMutation.mutateAsync(transformedData);
     } finally {
       setIsSubmitting(false);
     }
