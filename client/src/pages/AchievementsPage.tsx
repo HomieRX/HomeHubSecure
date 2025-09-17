@@ -171,7 +171,7 @@ export default function AchievementsPage() {
   });
 
   // Get categories and difficulties for filters
-  const categories = [...new Set(mockAchievements.map(a => a.category).filter(c => c !== "Secret"))];
+  const categories = Array.from(new Set(mockAchievements.map(a => a.category).filter(c => c !== "Secret")));
   const difficulties = ["easy", "medium", "hard", "extreme"];
 
   const getDifficultyColor = (difficulty: string) => {

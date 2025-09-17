@@ -1,10 +1,17 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest } from '@/lib/queryClient';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { insertCommunityPostSchema, type InsertCommunityPost } from '@shared/schema';
 import {
   Select,
   SelectContent,
@@ -31,208 +38,271 @@ import {
   Star,
   Award,
   Filter,
-  Search
+  Search,
+  Loader2,
+  RefreshCw,
+  Users,
+  Clock
 } from 'lucide-react';
 import { format } from 'date-fns';
 
+// Type based on the API response structure
 interface TimelinePost {
   id: string;
   authorId: string;
-  authorName: string;
-  authorAvatar?: string;
   content: string;
-  type: 'text' | 'photo' | 'question' | 'tip' | 'achievement';
-  timestamp: Date;
-  likes: number;
-  comments: number;
-  isLiked: boolean;
-  tags?: string[];
   images?: string[];
-  location?: string;
-  group?: string;
+  tags?: string[];
+  likeCount: number;
+  commentCount: number;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+  // Additional fields from user join
+  authorName?: string;
+  authorAvatar?: string;
 }
+
 
 export default function Timeline() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
-  const [newPost, setNewPost] = useState({ content: '', type: 'text', tags: '' });
 
-  // Mock data - in real app this would come from API
-  const [timelinePosts, setTimelinePosts] = useState<TimelinePost[]>([
-    {
-      id: '1',
-      authorId: 'user1',
-      authorName: 'Sarah DIY Queen',
-      content: 'Just finished my kitchen backsplash project! Used subway tiles with dark grout for a modern look. The transformation is incredible! Here are some before and after shots.',
-      type: 'photo',
-      timestamp: new Date(2025, 8, 13, 14, 30),
-      likes: 34,
-      comments: 12,
-      isLiked: true,
-      tags: ['Kitchen', 'Backsplash', 'Tile', 'DIY'],
-      images: ['kitchen-before.jpg', 'kitchen-after.jpg'],
-      group: 'DIY Home Projects'
-    },
-    {
-      id: '2',
-      authorId: 'user2',
-      authorName: 'Mike Builder',
-      content: 'Quick tip: When installing trim, always use a nail set to countersink your finish nails. Fill the holes with wood putty and sand smooth before painting for a professional look. This extra step makes all the difference!',
-      type: 'tip',
-      timestamp: new Date(2025, 8, 13, 11, 15),
-      likes: 28,
-      comments: 7,
-      isLiked: false,
-      tags: ['Carpentry', 'Tips', 'Trim', 'Professional'],
-      group: 'DIY Home Projects'
-    },
-    {
-      id: '3',
-      authorId: 'user3',
-      authorName: 'Green Thumb Gary',
-      content: 'My tomatoes are looking fantastic this season! Anyone else having success with cherry tomatoes this year? What varieties are working best for you in the Texas heat? I\'ve had great luck with Sun Gold and Black Cherry varieties.',
-      type: 'question',
-      timestamp: new Date(2025, 8, 12, 16, 45),
-      likes: 19,
-      comments: 15,
-      isLiked: false,
-      tags: ['Tomatoes', 'Vegetables', 'Texas', 'Gardening'],
-      images: ['tomato-plants.jpg'],
-      group: 'Garden Enthusiasts'
-    },
-    {
-      id: '4',
-      authorId: 'user4',
-      authorName: 'Tech Tom',
-      content: 'Just upgraded to smart switches throughout my house. The scheduling and remote control features are absolute game changers! Installation was much easier than I expected, and the app integration is seamless.',
-      type: 'text',
-      timestamp: new Date(2025, 8, 12, 9, 20),
-      likes: 23,
-      comments: 9,
-      isLiked: true,
-      tags: ['Smart Switches', 'Home Automation', 'Technology'],
-      group: 'Smart Home Tech'
-    },
-    {
-      id: '5',
-      authorId: 'user5',
-      authorName: 'Eco Emma',
-      content: 'Achievement unlocked! I managed to reduce my energy bill by 30% this month thanks to the new LED lights and programmable thermostat. Small changes really do add up to big savings!',
-      type: 'achievement',
-      timestamp: new Date(2025, 8, 11, 19, 10),
-      likes: 41,
-      comments: 18,
-      isLiked: true,
-      tags: ['Energy Savings', 'LED', 'Smart Thermostat', 'Achievement'],
-      group: 'Energy Efficient Homes'
-    },
-    {
-      id: '6',
-      authorId: 'user6',
-      authorName: 'Handy Hannah',
-      content: 'Has anyone dealt with a squeaky door hinge that won\'t stop no matter how much oil you use? I\'ve tried WD-40, 3-in-1 oil, and even graphite powder. The squeak keeps coming back after a few days.',
-      type: 'question',
-      timestamp: new Date(2025, 8, 11, 14, 35),
-      likes: 16,
-      comments: 22,
-      isLiked: false,
-      tags: ['Door Repair', 'Maintenance', 'Help'],
-      group: 'DIY Home Projects'
+  // Create Post Form
+  const postForm = useForm<InsertCommunityPost>({
+    resolver: zodResolver(insertCommunityPostSchema),
+    defaultValues: {
+      content: '',
+      tags: [],
+      images: [],
+      isPublic: true,
+      authorId: '', // Will be set from user context
     }
-  ]);
+  });
+  
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const postTypes = ['All', 'Text', 'Photo', 'Question', 'Tip', 'Achievement'];
-
-  const getPostTypeIcon = (type: string) => {
-    switch (type) {
-      case 'photo':
-        return <Image className="h-4 w-4" />;
-      case 'question':
-        return <MessageSquare className="h-4 w-4" />;
-      case 'tip':
-        return <Star className="h-4 w-4" />;
-      case 'achievement':
-        return <Award className="h-4 w-4" />;
-      default:
-        return <MessageSquare className="h-4 w-4" />;
-    }
-  };
-
-  const getPostTypeColor = (type: string) => {
-    switch (type) {
-      case 'photo':
-        return 'text-purple-600';
-      case 'question':
-        return 'text-blue-600';
-      case 'tip':
-        return 'text-yellow-600';
-      case 'achievement':
-        return 'text-green-600';
-      default:
-        return 'text-gray-600';
-    }
-  };
-
-  const filteredPosts = timelinePosts.filter(post => {
-    const matchesSearch = searchQuery === '' || 
-      post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.authorName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (post.tags && post.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())));
-    
-    const matchesType = typeFilter === 'all' || post.type === typeFilter.toLowerCase();
-    
-    return matchesSearch && matchesType;
+  // Fetch timeline posts from API
+  const {
+    data: timelinePosts = [],
+    isLoading,
+    error,
+    refetch
+  } = useQuery<TimelinePost[]>({
+    queryKey: ['/api/community/posts'],
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    retry: 3
   });
 
-  const toggleLike = (postId: string) => {
-    setTimelinePosts(posts => 
-      posts.map(post => 
-        post.id === postId 
-          ? { ...post, isLiked: !post.isLiked, likes: post.isLiked ? post.likes - 1 : post.likes + 1 }
-          : post
-      )
-    );
-  };
-
-  const createPost = () => {
-    const post: TimelinePost = {
-      id: Date.now().toString(),
-      authorId: 'current-user',
-      authorName: 'You',
-      content: newPost.content,
-      type: newPost.type as TimelinePost['type'],
-      timestamp: new Date(),
-      likes: 0,
-      comments: 0,
-      isLiked: false,
-      tags: newPost.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
+  // Form submission handler
+  const onCreatePost = async (data: InsertCommunityPost) => {
+    // TODO: Get actual user ID from context/auth
+    const postData = {
+      ...data,
+      authorId: 'temp-user-id', // Replace with actual user ID
+      tags: Array.isArray(data.tags) ? data.tags : []
     };
-
-    setTimelinePosts(posts => [post, ...posts]);
-    setNewPost({ content: '', type: 'text', tags: '' });
-    setIsCreatePostOpen(false);
+    createPostMutation.mutate(postData);
   };
 
-  const stats = {
-    totalPosts: timelinePosts.length,
-    totalLikes: timelinePosts.reduce((sum, post) => sum + post.likes, 0),
-    totalComments: timelinePosts.reduce((sum, post) => sum + post.comments, 0),
-    myPosts: timelinePosts.filter(post => post.authorId === 'current-user').length
+  // Create post mutation
+  const createPostMutation = useMutation({
+    mutationFn: async (postData: InsertCommunityPost) => {
+      return apiRequest('POST', '/api/community/posts', postData);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Post created!",
+        description: "Your post has been shared with the community.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/community/posts'] });
+      setIsCreatePostOpen(false);
+      postForm.reset();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error creating post",
+        description: error.message || "Failed to create post. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Like post mutation with optimistic updates
+  const likePostMutation = useMutation({
+    mutationFn: async ({ postId, isLiked }: { postId: string; isLiked: boolean }) => {
+      const action = isLiked ? 'unlike' : 'like';
+      return apiRequest('POST', `/api/community/posts/${postId}/${action}`);
+    },
+    onMutate: async ({ postId, isLiked }) => {
+      // Cancel outgoing queries
+      await queryClient.cancelQueries({ queryKey: ['/api/community/posts'] });
+      
+      // Snapshot current value
+      const previousPosts = queryClient.getQueryData<TimelinePost[]>(['/api/community/posts']);
+      
+      // Optimistically update cache
+      if (previousPosts) {
+        const updatedPosts = previousPosts.map(post => 
+          post.id === postId 
+            ? { 
+                ...post, 
+                likeCount: isLiked ? post.likeCount - 1 : post.likeCount + 1,
+                isLiked: !isLiked 
+              }
+            : post
+        );
+        queryClient.setQueryData(['/api/community/posts'], updatedPosts);
+      }
+      
+      return { previousPosts };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousPosts) {
+        queryClient.setQueryData(['/api/community/posts'], context.previousPosts);
+      }
+      toast({
+        title: "Error updating like",
+        description: "Failed to update post like. Please try again.",
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      // Refetch to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['/api/community/posts'] });
+    },
+  });
+
+  // Filter and search posts
+  const filteredPosts = useMemo(() => {
+    if (!timelinePosts.length) return [];
+    
+    return timelinePosts.filter(post => {
+      const matchesSearch = searchQuery === '' ||
+        post.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        post.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+        
+      const matchesType = typeFilter === 'all' || 
+        (typeFilter === 'popular' && post.likeCount > 10) ||
+        (typeFilter === 'recent' && new Date(post.createdAt) > new Date(Date.now() - 24 * 60 * 60 * 1000));
+        
+      return matchesSearch && matchesType;
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [timelinePosts, searchQuery, typeFilter]);
+
+
+  // Handle like toggle
+  const handleToggleLike = (postId: string, isLiked: boolean) => {
+    likePostMutation.mutate({ postId, isLiked });
   };
+
+  // Handle loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold text-foreground">Community Timeline</h1>
+          <p className="text-muted-foreground">Loading posts...</p>
+        </div>
+        <div className="space-y-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i} className="animate-pulse">
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-muted rounded-full"></div>
+                  <div className="space-y-1">
+                    <div className="h-4 bg-muted rounded w-24"></div>
+                    <div className="h-3 bg-muted rounded w-16"></div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="h-4 bg-muted rounded"></div>
+                  <div className="h-4 bg-muted rounded w-3/4"></div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (error) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="text-center space-y-4">
+          <h1 className="text-3xl font-bold text-foreground">Community Timeline</h1>
+          <div className="text-destructive">
+            <p>Error loading timeline: {error.message}</p>
+            <Button onClick={() => refetch()} className="mt-2">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Try Again
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-            <Activity className="h-6 w-6" />
-            Community Timeline
-          </h1>
-          <p className="text-muted-foreground">Stay updated with the latest community posts and discussions</p>
-        </div>
-        
+      <div className="text-center space-y-2">
+        <h1 className="text-3xl font-bold text-foreground">Community Timeline</h1>
+        <p className="text-muted-foreground">
+          Stay connected with your HomeHub community
+        </p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-4 text-center">
+            <div className="flex items-center justify-center space-x-2">
+              <Activity className="h-5 w-5 text-blue-600" />
+              <div>
+                <p className="text-2xl font-bold">{timelinePosts.length}</p>
+                <p className="text-sm text-muted-foreground">Total Posts</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <div className="flex items-center justify-center space-x-2">
+              <Heart className="h-5 w-5 text-red-600" />
+              <div>
+                <p className="text-2xl font-bold">
+                  {timelinePosts.reduce((acc, post) => acc + post.likeCount, 0)}
+                </p>
+                <p className="text-sm text-muted-foreground">Total Likes</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <div className="flex items-center justify-center space-x-2">
+              <MessageSquare className="h-5 w-5 text-green-600" />
+              <div>
+                <p className="text-2xl font-bold">
+                  {timelinePosts.reduce((acc, post) => acc + post.commentCount, 0)}
+                </p>
+                <p className="text-sm text-muted-foreground">Total Comments</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Create Post Button */}
+      <div className="flex justify-center">
         <Dialog open={isCreatePostOpen} onOpenChange={setIsCreatePostOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-create-post">
@@ -240,111 +310,75 @@ export default function Timeline() {
               Create Post
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Create New Post</DialogTitle>
               <DialogDescription>
-                Share your thoughts, questions, or tips with the community.
+                Share something with the HomeHub community
               </DialogDescription>
             </DialogHeader>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Post Type</label>
-                <Select value={newPost.type} onValueChange={(value) => setNewPost({...newPost, type: value})}>
-                  <SelectTrigger data-testid="select-post-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="text">Text Post</SelectItem>
-                    <SelectItem value="photo">Photo Post</SelectItem>
-                    <SelectItem value="question">Question</SelectItem>
-                    <SelectItem value="tip">Tip/Advice</SelectItem>
-                    <SelectItem value="achievement">Achievement</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium">Content</label>
-                <Textarea
-                  value={newPost.content}
-                  onChange={(e) => setNewPost({...newPost, content: e.target.value})}
-                  placeholder="What would you like to share?"
-                  rows={4}
-                  data-testid="input-post-content"
+            <Form {...postForm}>
+              <form onSubmit={postForm.handleSubmit(onCreatePost)} className="space-y-4 py-4">
+                <FormField
+                  control={postForm.control}
+                  name="content"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Content</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="What's on your mind?"
+                          rows={4}
+                          data-testid="textarea-post-content"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium">Tags (comma separated)</label>
-                <Input
-                  value={newPost.tags}
-                  onChange={(e) => setNewPost({...newPost, tags: e.target.value})}
-                  placeholder="DIY, Kitchen, Tips"
-                  data-testid="input-post-tags"
+                <FormField
+                  control={postForm.control}
+                  name="isPublic"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-x-3 space-y-0">
+                      <FormControl>
+                        <input
+                          type="checkbox"
+                          checked={field.value}
+                          onChange={field.onChange}
+                          data-testid="checkbox-public-post"
+                        />
+                      </FormControl>
+                      <FormLabel className="text-sm font-normal">
+                        Make this post public
+                      </FormLabel>
+                    </FormItem>
+                  )}
                 />
-              </div>
-            </div>
-
+              </form>
+            </Form>
             <DialogFooter>
-              <Button onClick={createPost} disabled={!newPost.content} data-testid="button-submit-post">
-                Share Post
+              <Button 
+                variant="outline" 
+                onClick={() => setIsCreatePostOpen(false)}
+                disabled={createPostMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={postForm.handleSubmit(onCreatePost)}
+                disabled={createPostMutation.isPending}
+                data-testid="button-submit-post"
+              >
+                {createPostMutation.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                Create Post
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Posts</p>
-                <p className="text-2xl font-semibold">{stats.totalPosts}</p>
-              </div>
-              <Activity className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Likes</p>
-                <p className="text-2xl font-semibold text-red-600">{stats.totalLikes}</p>
-              </div>
-              <Heart className="h-5 w-5 text-red-600" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Comments</p>
-                <p className="text-2xl font-semibold text-blue-600">{stats.totalComments}</p>
-              </div>
-              <MessageSquare className="h-5 w-5 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">My Posts</p>
-                <p className="text-2xl font-semibold text-green-600">{stats.myPosts}</p>
-              </div>
-              <Star className="h-5 w-5 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Filters */}
@@ -354,24 +388,21 @@ export default function Timeline() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search posts, authors, or tags..."
+                placeholder="Search posts..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
                 data-testid="input-search-posts"
               />
             </div>
-            
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-full md:w-40" data-testid="select-post-type-filter">
-                <SelectValue placeholder="Post Type" />
+              <SelectTrigger className="w-full md:w-48" data-testid="select-post-filter">
+                <SelectValue placeholder="Filter posts" />
               </SelectTrigger>
               <SelectContent>
-                {postTypes.map((type) => (
-                  <SelectItem key={type} value={type.toLowerCase()}>
-                    {type}
-                  </SelectItem>
-                ))}
+                <SelectItem value="all">All Posts</SelectItem>
+                <SelectItem value="recent">Recent (24h)</SelectItem>
+                <SelectItem value="popular">Popular (10+ likes)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -379,105 +410,95 @@ export default function Timeline() {
       </Card>
 
       {/* Timeline Posts */}
-      <div className="space-y-6">
-        {filteredPosts.map((post) => (
-          <Card key={post.id}>
-            <CardContent className="p-6">
-              <div className="flex items-start gap-3">
-                <Avatar>
-                  <AvatarImage src={post.authorAvatar} />
-                  <AvatarFallback>
-                    {post.authorName.split(' ').map(n => n[0]).join('')}
-                  </AvatarFallback>
-                </Avatar>
-                
-                <div className="flex-1 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{post.authorName}</span>
-                    {post.group && (
-                      <>
-                        <span className="text-muted-foreground">in</span>
-                        <Badge variant="outline">{post.group}</Badge>
-                      </>
-                    )}
-                    <div className={`p-1 rounded-full ${getPostTypeColor(post.type)}`}>
-                      {getPostTypeIcon(post.type)}
-                    </div>
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {format(post.timestamp, 'MMM d, h:mm a')}
-                    </span>
-                  </div>
-                  
-                  <p className="text-sm leading-relaxed">{post.content}</p>
-                  
-                  {post.images && post.images.length > 0 && (
-                    <div className="grid grid-cols-2 gap-2">
-                      {post.images.slice(0, 4).map((image, index) => (
-                        <div key={index} className="aspect-video bg-muted rounded-lg flex items-center justify-center">
-                          <Image className="h-6 w-6 text-muted-foreground" />
-                          <span className="sr-only">{image}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {post.tags && post.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {post.tags.map((tag) => (
-                        <Badge key={tag} variant="outline" className="text-xs">
-                          #{tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  
-                  <div className="flex items-center gap-4 pt-2 border-t">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => toggleLike(post.id)}
-                      className="flex items-center gap-1"
-                      data-testid={`button-like-${post.id}`}
-                    >
-                      <Heart className={`h-4 w-4 ${post.isLiked ? 'fill-red-500 text-red-500' : ''}`} />
-                      <span>{post.likes}</span>
-                    </Button>
-                    
-                    <Button variant="ghost" size="sm" className="flex items-center gap-1">
-                      <MessageSquare className="h-4 w-4" />
-                      <span>{post.comments}</span>
-                    </Button>
-                    
-                    <Button variant="ghost" size="sm" className="flex items-center gap-1">
-                      <Share2 className="h-4 w-4" />
-                      Share
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {filteredPosts.length === 0 && (
+      {filteredPosts.length === 0 ? (
         <Card>
-          <CardContent className="p-12 text-center">
+          <CardContent className="p-8 text-center">
             <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="font-medium text-lg mb-2">No posts found</h3>
-            <p className="text-muted-foreground mb-4">
-              {searchQuery || typeFilter !== 'all'
-                ? 'Try adjusting your search filters'
-                : 'Be the first to share something with the community!'}
+            <p className="text-muted-foreground">
+              {searchQuery || typeFilter !== 'all' 
+                ? "No posts found matching your criteria." 
+                : "No posts yet. Be the first to share something!"}
             </p>
-            {!searchQuery && typeFilter === 'all' && (
-              <Button onClick={() => setIsCreatePostOpen(true)} data-testid="button-create-first-post">
-                <Plus className="h-4 w-4 mr-2" />
-                Create First Post
+            {(searchQuery || typeFilter !== 'all') && (
+              <Button 
+                onClick={() => {
+                  setSearchQuery('');
+                  setTypeFilter('all');
+                }}
+                className="mt-4"
+              >
+                Clear Filters
               </Button>
             )}
           </CardContent>
         </Card>
+      ) : (
+        <div className="space-y-4">
+          {filteredPosts.map((post) => (
+            <Card key={post.id} className="hover-elevate">
+              <CardContent className="p-6">
+                <div className="space-y-4">
+                  {/* Post Header */}
+                  <div className="flex items-start gap-3">
+                    <Avatar className="w-10 h-10">
+                      <AvatarImage src={post.authorAvatar} alt={post.authorName} />
+                      <AvatarFallback>
+                        {post.authorName?.split(' ').map(n => n[0]).join('') || 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold">{post.authorName || 'Anonymous'}</p>
+                        <span className="text-xs text-muted-foreground">•</span>
+                        <span className="text-xs text-muted-foreground">
+                          {format(new Date(post.createdAt), 'MMM d, yyyy • h:mm a')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Post Content */}
+                  <div className="space-y-3">
+                    <p className="text-foreground whitespace-pre-wrap">{post.content}</p>
+                    
+                    {/* Tags */}
+                    {post.tags && post.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {post.tags.map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-xs">
+                            #{tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Post Actions */}
+                  <div className="flex items-center gap-4 pt-2 border-t">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleToggleLike(post.id, false)} // Assuming not liked for now
+                      disabled={likePostMutation.isPending}
+                      data-testid={`button-like-${post.id}`}
+                    >
+                      <Heart className="h-4 w-4 mr-1" />
+                      {post.likeCount}
+                    </Button>
+                    <Button variant="ghost" size="sm">
+                      <MessageSquare className="h-4 w-4 mr-1" />
+                      {post.commentCount}
+                    </Button>
+                    <Button variant="ghost" size="sm">
+                      <Share2 className="h-4 w-4 mr-1" />
+                      Share
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );
