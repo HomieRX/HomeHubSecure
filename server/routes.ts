@@ -25,6 +25,7 @@ import {
   insertDealSchema,
   insertMessageSchema,
   insertNotificationSchema,
+  insertNotificationSettingsSchema,
   insertCalendarEventSchema,
   insertBadgeSchema,
   insertRankSchema,
@@ -32,7 +33,9 @@ import {
   insertMaintenanceItemSchema,
   type MemberProfile,
   type ContractorProfile,
-  type MerchantProfile
+  type MerchantProfile,
+  type NotificationSettings,
+  type InsertNotificationSettings
 } from "@shared/schema";
 import {
   // Enhanced validation schemas
@@ -333,6 +336,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid user data", details: error.errors });
       }
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Notification Settings Routes (PROTECTED)
+  app.get("/api/notification-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      let settings = await storage.getNotificationSettings(userId);
+      
+      // If no settings exist, create default settings
+      if (!settings) {
+        const defaultSettings: InsertNotificationSettings = { userId };
+        settings = await storage.createNotificationSettings(defaultSettings);
+      }
+      
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching notification settings:", error);
+      res.status(500).json({ error: "Failed to fetch notification settings" });
+    }
+  });
+
+  app.put("/api/notification-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      // Create a partial schema for updates (all fields except userId are optional)
+      const updateSchema = insertNotificationSettingsSchema.omit({ userId: true }).partial();
+      const validatedData = updateSchema.parse(req.body);
+      
+      // Check if settings exist, create if not
+      let existingSettings = await storage.getNotificationSettings(userId);
+      
+      if (!existingSettings) {
+        // Create new settings with the provided data
+        const createData: InsertNotificationSettings = { userId, ...validatedData };
+        existingSettings = await storage.createNotificationSettings(createData);
+      } else {
+        // Update existing settings
+        existingSettings = await storage.updateNotificationSettings(userId, validatedData);
+      }
+      
+      if (!existingSettings) {
+        return res.status(404).json({ error: "Failed to update notification settings" });
+      }
+      
+      res.json(existingSettings);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ error: "Invalid notification settings data", details: error.errors });
+      }
+      console.error("Error updating notification settings:", error);
+      res.status(500).json({ error: "Failed to update notification settings" });
     }
   });
 
