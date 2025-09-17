@@ -164,6 +164,53 @@ export const auditActionEnum = pgEnum("audit_action", [
   "slot_generated",
 ]);
 
+// Forum System Enums
+export const forumTypeEnum = pgEnum("forum_type", [
+  "general",      // General discussion forums
+  "qa",           // Q&A style forums
+  "announcements", // Announcement-only forums
+  "help",         // Help and support forums
+  "showcase",     // Project showcase forums
+  "group",        // Forums connected to community groups
+]);
+
+export const forumModerationEnum = pgEnum("forum_moderation", [
+  "open",         // Open posting by all members
+  "moderated",    // Posts require approval
+  "restricted",   // Only moderators can post
+  "locked",       // No new posts allowed
+]);
+
+export const topicStatusEnum = pgEnum("topic_status", [
+  "active",       // Normal active topic
+  "locked",       // Locked - no new posts
+  "pinned",       // Pinned to top
+  "solved",       // Marked as solved (for Q&A)
+  "closed",       // Closed by moderator
+  "archived",     // Archived old topic
+]);
+
+export const postTypeEnum = pgEnum("post_type", [
+  "initial",      // Initial post that starts the topic
+  "reply",        // Regular reply
+  "answer",       // Answer to a question (Q&A style)
+  "comment",      // Comment on an answer
+]);
+
+export const postStatusEnum = pgEnum("post_status", [
+  "active",       // Normal active post
+  "pending",      // Pending moderation
+  "approved",     // Approved after moderation
+  "flagged",      // Flagged for review
+  "hidden",       // Hidden by moderator
+  "deleted",      // Soft deleted
+]);
+
+export const voteTypeEnum = pgEnum("vote_type", [
+  "up",           // Upvote
+  "down",         // Downvote
+]);
+
 // Session storage table - Required for Replit Auth
 export const sessions = pgTable(
   "sessions",
@@ -644,6 +691,195 @@ export const communityGroups = pgTable("community_groups", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Forum System Tables
+export const forums = pgTable("forums", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  forumType: forumTypeEnum("forum_type").notNull().default("general"),
+  moderation: forumModerationEnum("moderation").notNull().default("open"),
+  
+  // Optional connection to community groups
+  communityGroupId: varchar("community_group_id").references(() => communityGroups.id),
+  
+  // Organization and display
+  displayOrder: integer("display_order").default(0),
+  color: text("color"), // Theme color for the forum
+  icon: text("icon"), // Icon identifier for the forum
+  coverImage: text("cover_image"),
+  
+  // Access control
+  isPrivate: boolean("is_private").notNull().default(false),
+  membershipRequired: membershipTierEnum("membership_required"), // Minimum tier required
+  requiredRoles: jsonb("required_roles").$type<string[]>(), // Required user roles
+  
+  // Statistics
+  topicCount: integer("topic_count").notNull().default(0),
+  postCount: integer("post_count").notNull().default(0),
+  lastActivityAt: timestamp("last_activity_at"),
+  lastTopicId: varchar("last_topic_id"),
+  
+  // Moderation
+  moderatorIds: jsonb("moderator_ids").$type<string[]>(), // User IDs of moderators
+  tags: jsonb("tags").$type<string[]>(),
+  rules: text("rules"), // Forum-specific rules
+  
+  // Metadata
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Indexes for performance
+  displayOrderIdx: index("forums_display_order_idx").on(table.displayOrder),
+  communityGroupIdx: index("forums_community_group_idx").on(table.communityGroupId),
+  lastActivityIdx: index("forums_last_activity_idx").on(table.lastActivityAt),
+}));
+
+export const forumTopics = pgTable("forum_topics", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  forumId: varchar("forum_id")
+    .notNull()
+    .references(() => forums.id, { onDelete: "cascade" }),
+  
+  // Basic topic info
+  title: text("title").notNull(),
+  description: text("description"),
+  slug: text("slug"), // URL-friendly version of title
+  
+  // Status and type
+  status: topicStatusEnum("status").notNull().default("active"),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  isLocked: boolean("is_locked").notNull().default(false),
+  isSolved: boolean("is_solved").notNull().default(false), // For Q&A style
+  
+  // Author and attribution
+  authorId: varchar("author_id")
+    .notNull()
+    .references(() => users.id),
+  
+  // Statistics
+  viewCount: integer("view_count").notNull().default(0),
+  postCount: integer("post_count").notNull().default(1), // Starts with 1 for initial post
+  participantCount: integer("participant_count").notNull().default(1),
+  
+  // Activity tracking
+  lastPostId: varchar("last_post_id"),
+  lastPostAt: timestamp("last_post_at").defaultNow(),
+  lastPostAuthorId: varchar("last_post_author_id").references(() => users.id),
+  
+  // Q&A specific
+  acceptedAnswerId: varchar("accepted_answer_id"), // For Q&A topics
+  bountyPoints: integer("bounty_points").default(0), // Loyalty points bounty
+  
+  // Tags and categorization
+  tags: jsonb("tags").$type<string[]>(),
+  
+  // Metadata
+  metadata: jsonb("metadata"), // Flexible additional data
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Indexes for performance
+  forumStatusIdx: index("forum_topics_forum_status_idx").on(table.forumId, table.status),
+  lastPostIdx: index("forum_topics_last_post_idx").on(table.lastPostAt),
+  authorIdx: index("forum_topics_author_idx").on(table.authorId),
+  pinnedIdx: index("forum_topics_pinned_idx").on(table.isPinned, table.lastPostAt),
+  // Unique slug per forum
+  uniqueSlug: unique("forum_topics_unique_slug").on(table.forumId, table.slug),
+}));
+
+export const forumPosts = pgTable("forum_posts", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  topicId: varchar("topic_id")
+    .notNull()
+    .references(() => forumTopics.id, { onDelete: "cascade" }),
+  forumId: varchar("forum_id")
+    .notNull()
+    .references(() => forums.id, { onDelete: "cascade" }),
+  
+  // Post hierarchy
+  parentPostId: varchar("parent_post_id").references(() => forumPosts.id), // For threaded replies
+  postType: postTypeEnum("post_type").notNull().default("reply"),
+  
+  // Content
+  content: text("content").notNull(),
+  contentHtml: text("content_html"), // Rendered HTML version
+  attachments: jsonb("attachments").$type<string[]>(), // File attachments
+  images: jsonb("images").$type<string[]>(), // Image attachments
+  
+  // Author and attribution
+  authorId: varchar("author_id")
+    .notNull()
+    .references(() => users.id),
+  
+  // Status and moderation
+  status: postStatusEnum("status").notNull().default("active"),
+  isEdited: boolean("is_edited").notNull().default(false),
+  editedAt: timestamp("edited_at"),
+  editReason: text("edit_reason"),
+  
+  // Voting and engagement (Q&A style)
+  upvotes: integer("upvotes").notNull().default(0),
+  downvotes: integer("downvotes").notNull().default(0),
+  score: integer("score").notNull().default(0), // upvotes - downvotes
+  
+  // Q&A specific
+  isAcceptedAnswer: boolean("is_accepted_answer").notNull().default(false),
+  acceptedAt: timestamp("accepted_at"),
+  acceptedBy: varchar("accepted_by").references(() => users.id), // Topic author who accepted
+  
+  // Threading and replies
+  replyCount: integer("reply_count").notNull().default(0),
+  level: integer("level").notNull().default(0), // Nesting level (0 = top level)
+  path: text("path"), // Materialized path for efficient threading (e.g., "1.2.3")
+  
+  // Metadata
+  ipAddress: text("ip_address"), // For moderation
+  userAgent: text("user_agent"), // For spam detection
+  metadata: jsonb("metadata"), // Flexible additional data
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Indexes for performance
+  topicCreatedIdx: index("forum_posts_topic_created_idx").on(table.topicId, table.createdAt),
+  authorIdx: index("forum_posts_author_idx").on(table.authorId),
+  statusIdx: index("forum_posts_status_idx").on(table.status),
+  parentIdx: index("forum_posts_parent_idx").on(table.parentPostId),
+  scoreIdx: index("forum_posts_score_idx").on(table.score),
+  pathIdx: index("forum_posts_path_idx").on(table.path),
+}));
+
+// Forum voting system for posts
+export const forumPostVotes = pgTable("forum_post_votes", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  postId: varchar("post_id")
+    .notNull()
+    .references(() => forumPosts.id, { onDelete: "cascade" }),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  voteType: voteTypeEnum("vote_type").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  // One vote per user per post
+  uniqueUserPost: unique("forum_post_votes_unique_user_post").on(table.postId, table.userId),
+  // Indexes for performance
+  postIdx: index("forum_post_votes_post_idx").on(table.postId),
+  userIdx: index("forum_post_votes_user_idx").on(table.userId),
+}));
 
 export const messages = pgTable("messages", {
   id: varchar("id")
@@ -1384,6 +1620,81 @@ export const insertScheduleAuditLogSchema = createInsertSchema(scheduleAuditLog)
   createdAt: true,
 });
 
+// ===========================
+// FORUM SYSTEM INSERT SCHEMAS
+// ===========================
+
+export const insertForumSchema = createInsertSchema(forums).omit({
+  id: true,
+  topicCount: true, // System-managed field
+  postCount: true, // System-managed field
+  lastActivityAt: true, // System-managed field
+  lastTopicId: true, // System-managed field
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(2, "Forum name must be at least 2 characters").max(100, "Forum name must be less than 100 characters"),
+  description: z.string().min(5, "Description must be at least 5 characters").max(1000, "Description must be less than 1000 characters"),
+  displayOrder: z.number().int().optional(),
+  color: z.string().regex(/^#[0-9A-F]{6}$/i, "Color must be a valid hex color").optional(),
+  icon: z.string().max(50, "Icon must be less than 50 characters").optional(),
+  requiredRoles: z.array(z.string()).optional(),
+  moderatorIds: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  rules: z.string().max(5000, "Rules must be less than 5000 characters").optional(),
+});
+
+export const insertForumTopicSchema = createInsertSchema(forumTopics).omit({
+  id: true,
+  viewCount: true, // System-managed field
+  postCount: true, // System-managed field
+  participantCount: true, // System-managed field
+  lastPostId: true, // System-managed field
+  lastPostAt: true, // System-managed field
+  lastPostAuthorId: true, // System-managed field
+  acceptedAnswerId: true, // System-managed field
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  title: z.string().min(5, "Title must be at least 5 characters").max(200, "Title must be less than 200 characters"),
+  description: z.string().max(1000, "Description must be less than 1000 characters").optional(),
+  slug: z.string().max(250, "Slug must be less than 250 characters").optional(),
+  bountyPoints: z.number().int().min(0, "Bounty points cannot be negative").optional(),
+  tags: z.array(z.string()).optional(),
+  metadata: z.record(z.any()).optional(),
+});
+
+export const insertForumPostSchema = createInsertSchema(forumPosts).omit({
+  id: true,
+  contentHtml: true, // System-generated field
+  isEdited: true, // System-managed field
+  editedAt: true, // System-managed field
+  upvotes: true, // System-managed field
+  downvotes: true, // System-managed field
+  score: true, // System-managed field
+  isAcceptedAnswer: true, // System-managed field
+  acceptedAt: true, // System-managed field
+  acceptedBy: true, // System-managed field
+  replyCount: true, // System-managed field
+  level: true, // System-calculated field
+  path: true, // System-calculated field
+  ipAddress: true, // System-captured field
+  userAgent: true, // System-captured field
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  content: z.string().min(1, "Content is required").max(10000, "Content must be less than 10,000 characters"),
+  attachments: z.array(z.string()).optional(),
+  images: z.array(z.string()).optional(),
+  editReason: z.string().max(200, "Edit reason must be less than 200 characters").optional(),
+  metadata: z.record(z.any()).optional(),
+});
+
+export const insertForumPostVoteSchema = createInsertSchema(forumPostVotes).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Type exports
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -1435,6 +1746,18 @@ export type InsertScheduleConflict = z.infer<typeof insertScheduleConflictSchema
 export type ScheduleConflict = typeof scheduleConflicts.$inferSelect;
 export type InsertScheduleAuditLog = z.infer<typeof insertScheduleAuditLogSchema>;
 export type ScheduleAuditLog = typeof scheduleAuditLog.$inferSelect;
+
+// ===========================
+// FORUM SYSTEM TYPE EXPORTS
+// ===========================
+export type InsertForum = z.infer<typeof insertForumSchema>;
+export type Forum = typeof forums.$inferSelect;
+export type InsertForumTopic = z.infer<typeof insertForumTopicSchema>;
+export type ForumTopic = typeof forumTopics.$inferSelect;
+export type InsertForumPost = z.infer<typeof insertForumPostSchema>;
+export type ForumPost = typeof forumPosts.$inferSelect;
+export type InsertForumPostVote = z.infer<typeof insertForumPostVoteSchema>;
+export type ForumPostVote = typeof forumPostVotes.$inferSelect;
 
 // Gamification System Tables
 export const badges = pgTable("badges", {
