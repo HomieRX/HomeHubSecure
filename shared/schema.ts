@@ -1216,6 +1216,32 @@ export const insertCalendarEventSchema = createInsertSchema(
   updatedAt: true,
 });
 
+// Community System Insert Schemas
+export const insertCommunityGroupSchema = createInsertSchema(communityGroups).omit({
+  id: true,
+  memberCount: true, // System-managed field
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().min(3, "Group name must be at least 3 characters").max(100, "Group name must be less than 100 characters"),
+  description: z.string().min(10, "Description must be at least 10 characters").max(1000, "Description must be less than 1000 characters"),
+  category: z.string().min(2, "Category is required").max(50, "Category must be less than 50 characters"),
+  location: z.string().max(100, "Location must be less than 100 characters").optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+export const insertCommunityPostSchema = createInsertSchema(communityPosts).omit({
+  id: true,
+  likeCount: true, // System-managed field
+  commentCount: true, // System-managed field
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  content: z.string().min(1, "Content is required").max(5000, "Content must be less than 5000 characters"),
+  tags: z.array(z.string()).optional(),
+  images: z.array(z.string()).optional(),
+});
+
 // PreventiT! Bundle System Insert Schemas
 export const insertMembershipTierLimitsSchema = createInsertSchema(membershipTierLimits).omit({
   id: true,
@@ -1341,6 +1367,10 @@ export type LoyaltyPointTransaction =
 export type DealRedemption = typeof dealRedemptions.$inferSelect;
 export type CommunityPost = typeof communityPosts.$inferSelect;
 export type CommunityGroup = typeof communityGroups.$inferSelect;
+
+// Community System Types
+export type InsertCommunityGroup = z.infer<typeof insertCommunityGroupSchema>;
+export type InsertCommunityPost = z.infer<typeof insertCommunityPostSchema>;
 
 // ===========================
 // SCHEDULING SYSTEM TYPE EXPORTS
