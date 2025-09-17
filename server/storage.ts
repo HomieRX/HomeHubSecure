@@ -11,6 +11,7 @@ import {
   type Deal, type InsertDeal,
   type Message, type InsertMessage,
   type Notification, type InsertNotification,
+  type NotificationSettings, type InsertNotificationSettings,
   type CalendarEvent, type InsertCalendarEvent,
   type Badge, type InsertBadge,
   type Rank, type InsertRank,
@@ -163,6 +164,11 @@ export interface IStorage {
   markNotificationAsRead(id: string): Promise<Notification | undefined>;
   markAllNotificationsAsRead(userId: string): Promise<void>;
   
+  // Notification Settings
+  getNotificationSettings(userId: string): Promise<NotificationSettings | undefined>;
+  createNotificationSettings(settings: InsertNotificationSettings): Promise<NotificationSettings>;
+  updateNotificationSettings(userId: string, updates: Partial<InsertNotificationSettings>): Promise<NotificationSettings | undefined>;
+  
   // Calendar events
   getCalendarEvent(id: string): Promise<CalendarEvent | undefined>;
   getCalendarEventsByUser(userId: string): Promise<CalendarEvent[]>;
@@ -254,6 +260,7 @@ export class MemStorage implements IStorage {
   private dealRedemptions: Map<string, DealRedemption>;
   private messages: Map<string, Message>;
   private notifications: Map<string, Notification>;
+  private notificationSettings: Map<string, NotificationSettings>;
   private calendarEvents: Map<string, CalendarEvent>;
   private communityPosts: Map<string, CommunityPost>;
   private communityGroups: Map<string, CommunityGroup>;
@@ -277,6 +284,7 @@ export class MemStorage implements IStorage {
     this.dealRedemptions = new Map();
     this.messages = new Map();
     this.notifications = new Map();
+    this.notificationSettings = new Map();
     this.calendarEvents = new Map();
     this.communityPosts = new Map();
     this.communityGroups = new Map();
@@ -1288,6 +1296,62 @@ export class MemStorage implements IStorage {
         const readNotification: Notification = { ...notif, isRead: true };
         this.notifications.set(notif.id, readNotification);
       });
+  }
+
+  // Notification Settings
+  async getNotificationSettings(userId: string): Promise<NotificationSettings | undefined> {
+    return Array.from(this.notificationSettings.values()).find(settings => settings.userId === userId);
+  }
+
+  async createNotificationSettings(insertSettings: InsertNotificationSettings): Promise<NotificationSettings> {
+    const id = randomUUID();
+    const now = new Date();
+    const settings: NotificationSettings = {
+      id,
+      userId: insertSettings.userId,
+      // Mentions
+      mentions: insertSettings.mentions ?? true,
+      // Posts & Comments
+      postReplies: insertSettings.postReplies ?? true,
+      // Account Settings
+      passwordChanged: insertSettings.passwordChanged ?? true,
+      // Activity Feeds
+      activityFeedReplies: insertSettings.activityFeedReplies ?? true,
+      // Social Groups
+      groupDetailsUpdated: insertSettings.groupDetailsUpdated ?? true,
+      groupPromotion: insertSettings.groupPromotion ?? true,
+      groupInviteReceived: insertSettings.groupInviteReceived ?? true,
+      groupJoinRequest: insertSettings.groupJoinRequest ?? true,
+      groupJoinAccepted: insertSettings.groupJoinAccepted ?? true,
+      groupJoinRejected: insertSettings.groupJoinRejected ?? true,
+      groupNewPost: insertSettings.groupNewPost ?? true,
+      groupNewDiscussion: insertSettings.groupNewDiscussion ?? true,
+      // Discussion Forums
+      forumNewDiscussion: insertSettings.forumNewDiscussion ?? true,
+      forumNewReply: insertSettings.forumNewReply ?? true,
+      // Private Messages
+      privateMessages: insertSettings.privateMessages ?? true,
+      // Member Connections
+      connectionRequest: insertSettings.connectionRequest ?? true,
+      connectionAccepted: insertSettings.connectionAccepted ?? true,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.notificationSettings.set(id, settings);
+    return settings;
+  }
+
+  async updateNotificationSettings(userId: string, updates: Partial<InsertNotificationSettings>): Promise<NotificationSettings | undefined> {
+    const existingSettings = Array.from(this.notificationSettings.values()).find(settings => settings.userId === userId);
+    if (!existingSettings) return undefined;
+
+    const updatedSettings: NotificationSettings = {
+      ...existingSettings,
+      ...applyDefined(existingSettings, updates),
+      updatedAt: new Date()
+    };
+    this.notificationSettings.set(existingSettings.id, updatedSettings);
+    return updatedSettings;
   }
 
   // Calendar event methods

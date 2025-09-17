@@ -682,6 +682,52 @@ export const notifications = pgTable("notifications", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const notificationSettings = pgTable("notification_settings", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  
+  // Mentions
+  mentions: boolean("mentions").notNull().default(true),
+  
+  // Posts & Comments
+  postReplies: boolean("post_replies").notNull().default(true),
+  
+  // Account Settings
+  passwordChanged: boolean("password_changed").notNull().default(true),
+  
+  // Activity Feeds
+  activityFeedReplies: boolean("activity_feed_replies").notNull().default(true),
+  
+  // Social Groups
+  groupDetailsUpdated: boolean("group_details_updated").notNull().default(true),
+  groupPromotion: boolean("group_promotion").notNull().default(true),
+  groupInviteReceived: boolean("group_invite_received").notNull().default(true),
+  groupJoinRequest: boolean("group_join_request").notNull().default(true),
+  groupJoinAccepted: boolean("group_join_accepted").notNull().default(true),
+  groupJoinRejected: boolean("group_join_rejected").notNull().default(true),
+  groupNewPost: boolean("group_new_post").notNull().default(true),
+  groupNewDiscussion: boolean("group_new_discussion").notNull().default(true),
+  
+  // Discussion Forums
+  forumNewDiscussion: boolean("forum_new_discussion").notNull().default(true),
+  forumNewReply: boolean("forum_new_reply").notNull().default(true),
+  
+  // Private Messages
+  privateMessages: boolean("private_messages").notNull().default(true),
+  
+  // Member Connections
+  connectionRequest: boolean("connection_request").notNull().default(true),
+  connectionAccepted: boolean("connection_accepted").notNull().default(true),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const calendarEvents = pgTable("calendar_events", {
   id: varchar("id")
     .primaryKey()
@@ -1208,6 +1254,12 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   createdAt: true,
 });
 
+export const insertNotificationSettingsSchema = createInsertSchema(notificationSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertCalendarEventSchema = createInsertSchema(
   calendarEvents,
 ).omit({
@@ -1360,6 +1412,8 @@ export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;
+export type InsertNotificationSettings = z.infer<typeof insertNotificationSettingsSchema>;
+export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type InsertCalendarEvent = z.infer<typeof insertCalendarEventSchema>;
 export type CalendarEvent = typeof calendarEvents.$inferSelect;
 export type LoyaltyPointTransaction =
