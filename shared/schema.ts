@@ -132,6 +132,38 @@ export const seasonalWindowEnum = pgEnum("seasonal_window", [
   "Jul-Aug",
 ]);
 
+// Scheduling System Enums
+export const slotTypeEnum = pgEnum("slot_type", [
+  "standard",    // Regular maintenance/service slots
+  "emergency",   // Emergency service slots
+  "inspection",  // Inspection-only slots
+  "consultation",// Consultation/estimate slots
+  "followup",   // Follow-up work slots
+]);
+
+export const slotDurationEnum = pgEnum("slot_duration", [
+  "1_hour",      // 1 hour slots
+  "2_hour",      // 2 hour slots  
+  "4_hour",      // 4 hour slots (half day)
+  "8_hour",      // 8 hour slots (full day)
+  "custom",      // Custom duration
+]);
+
+export const conflictSeverityEnum = pgEnum("conflict_severity", [
+  "hard",        // Direct time overlap - cannot book
+  "soft",        // Near overlap - warning but can book
+  "travel",      // Travel time conflict
+]);
+
+export const auditActionEnum = pgEnum("audit_action", [
+  "schedule_created",
+  "schedule_updated", 
+  "schedule_cancelled",
+  "conflict_detected",
+  "admin_override",
+  "slot_generated",
+]);
+
 // Session storage table - Required for Replit Auth
 export const sessions = pgTable(
   "sessions",
@@ -319,6 +351,17 @@ export const serviceRequests = pgTable("service_requests", {
   state: text("state").notNull(),
   zipCode: text("zip_code").notNull(),
   preferredDateTime: timestamp("preferred_date_time"),
+  
+  // ADDED: Preferred dates handling (up to 3 dates with time preferences)
+  preferredDates: jsonb("preferred_dates").$type<{
+    date1?: string; // ISO date string
+    time1?: string; // Preferred time window ("AM", "PM", or specific time)
+    date2?: string;
+    time2?: string;
+    date3?: string;
+    time3?: string;
+    notes?: string; // Additional scheduling preferences
+  }>(),
 
   // Scheduling and Seasonal Controls (for PreventiT!)
   isSeasonalService: boolean("is_seasonal_service").notNull().default(false),
@@ -388,6 +431,24 @@ export const workOrders = pgTable("work_orders", {
   scheduledEndDate: timestamp("scheduled_end_date"),
   actualStartDate: timestamp("actual_start_date"),
   actualEndDate: timestamp("actual_end_date"),
+  
+  // Enhanced scheduling fields for conflict-aware system
+  assignedSlotId: varchar("assigned_slot_id").references(() => timeSlots.id),
+  scheduledDuration: integer("scheduled_duration_minutes"), // Duration in minutes
+  slotType: slotTypeEnum("slot_type").default("standard"),
+  memberPreferredDates: jsonb("member_preferred_dates").$type<{
+    preferredDate1?: string; // ISO date string
+    preferredTime1?: string; // ISO time string
+    preferredDate2?: string;
+    preferredTime2?: string; 
+    preferredDate3?: string;
+    preferredTime3?: string;
+    notes?: string; // Additional scheduling preferences
+  }>(),
+  hasSchedulingConflicts: boolean("has_scheduling_conflicts").notNull().default(false),
+  conflictOverrideReason: text("conflict_override_reason"), // Reason for admin override
+  conflictOverrideBy: varchar("conflict_override_by").references(() => users.id),
+  conflictOverrideAt: timestamp("conflict_override_at"),
   workDescription: text("work_description").notNull(),
   materialsNeeded: jsonb("materials_needed"),
   laborHours: decimal("labor_hours", { precision: 5, scale: 2 }),
@@ -904,6 +965,132 @@ export const bundleNotifications = pgTable("bundle_notifications", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ===========================
+// SCHEDULING SYSTEM TABLES
+// ===========================
+
+// Time slots for contractor availability
+export const timeSlots = pgTable("time_slots", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  contractorId: varchar("contractor_id")
+    .notNull()
+    .references(() => contractorProfiles.id, { onDelete: "cascade" }),
+  
+  // Time slot details
+  slotDate: timestamp("slot_date", { withTimezone: true }).notNull(),
+  startTime: timestamp("start_time", { withTimezone: true }).notNull(),
+  endTime: timestamp("end_time", { withTimezone: true }).notNull(),
+  slotType: slotTypeEnum("slot_type").notNull().default("standard"),
+  duration: slotDurationEnum("duration").notNull(),
+  customDurationMinutes: integer("custom_duration_minutes"), // For custom durations
+  
+  // Availability and booking
+  isAvailable: boolean("is_available").notNull().default(true),
+  isRecurring: boolean("is_recurring").notNull().default(false),
+  recurringPattern: jsonb("recurring_pattern").$type<{
+    frequency: "daily" | "weekly" | "monthly";
+    interval: number; // Every N days/weeks/months
+    daysOfWeek?: number[]; // For weekly: [1,2,3,4,5] = Mon-Fri
+    endDate?: string; // When recurring pattern ends
+  }>(),
+  
+  // Metadata
+  notes: text("notes"), // Internal notes about this slot
+  maxConcurrentBookings: integer("max_concurrent_bookings").notNull().default(1),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Ensure no duplicate slots for same contractor at same time
+  uniqueContractorSlot: unique("unique_contractor_slot").on(
+    table.contractorId, 
+    table.startTime, 
+    table.endTime
+  ),
+  // Index for quick availability queries
+  contractorDateIndex: index("contractor_date_idx").on(table.contractorId, table.slotDate),
+  slotTimeIndex: index("slot_time_idx").on(table.startTime, table.endTime),
+}));
+
+// Schedule conflicts detection and logging
+export const scheduleConflicts = pgTable("schedule_conflicts", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  
+  // Conflict details
+  conflictType: conflictSeverityEnum("conflict_type").notNull(),
+  workOrderId: varchar("work_order_id")
+    .references(() => workOrders.id, { onDelete: "cascade" }),
+  contractorId: varchar("contractor_id")
+    .notNull()
+    .references(() => contractorProfiles.id, { onDelete: "cascade" }),
+  
+  // Time range of conflict
+  conflictStart: timestamp("conflict_start", { withTimezone: true }).notNull(),
+  conflictEnd: timestamp("conflict_end", { withTimezone: true }).notNull(),
+  
+  // Conflicting entities
+  conflictingWorkOrderIds: jsonb("conflicting_work_order_ids").$type<string[]>(),
+  conflictingSlotIds: jsonb("conflicting_slot_ids").$type<string[]>(),
+  
+  // Resolution
+  isResolved: boolean("is_resolved").notNull().default(false),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  resolutionNotes: text("resolution_notes"),
+  adminOverride: boolean("admin_override").notNull().default(false),
+  
+  // Metadata
+  detectionMethod: text("detection_method").notNull(), // "automatic", "manual_check", "booking_validation"
+  conflictDescription: text("conflict_description").notNull(),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  contractorConflictIndex: index("contractor_conflict_idx").on(table.contractorId, table.conflictStart),
+  unresolvedConflictsIndex: index("unresolved_conflicts_idx").on(table.isResolved, table.createdAt),
+}));
+
+// Schedule audit log for tracking all scheduling actions
+export const scheduleAuditLog = pgTable("schedule_audit_log", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  
+  // Action details
+  action: auditActionEnum("action").notNull(),
+  entityType: text("entity_type").notNull(), // "work_order", "time_slot", "conflict"
+  entityId: varchar("entity_id").notNull(),
+  
+  // User context
+  userId: varchar("user_id")
+    .references(() => users.id, { onDelete: "set null" }),
+  userRole: userRoleEnum("user_role"),
+  
+  // Change details
+  oldValues: jsonb("old_values"), // Previous state before change
+  newValues: jsonb("new_values"), // New state after change
+  changedFields: jsonb("changed_fields").$type<string[]>(), // List of fields that changed
+  
+  // Metadata
+  reason: text("reason"), // Reason for the change
+  adminOverride: boolean("admin_override").notNull().default(false),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  
+  // Context data
+  additionalData: jsonb("additional_data"), // Any additional context
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  entityAuditIndex: index("entity_audit_idx").on(table.entityType, table.entityId),
+  userActionIndex: index("user_action_idx").on(table.userId, table.action, table.createdAt),
+  adminOverrideIndex: index("admin_override_idx").on(table.adminOverride, table.createdAt),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -978,6 +1165,8 @@ export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({
   actualStartDate: true,
   actualEndDate: true,
   completedAt: true,
+  hasSchedulingConflicts: true, // System-managed field
+  conflictOverrideAt: true, // System-managed field
   createdAt: true,
   updatedAt: true,
 });
@@ -1094,6 +1283,28 @@ export const insertBundleNotificationSchema = createInsertSchema(bundleNotificat
   createdAt: true,
 });
 
+// ===========================
+// SCHEDULING SYSTEM INSERT SCHEMAS
+// ===========================
+
+export const insertTimeSlotSchema = createInsertSchema(timeSlots).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertScheduleConflictSchema = createInsertSchema(scheduleConflicts).omit({
+  id: true,
+  isResolved: true, // System-managed field
+  resolvedAt: true, // System-managed field
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertScheduleAuditLogSchema = createInsertSchema(scheduleAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
 
 // Type exports
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -1130,6 +1341,16 @@ export type LoyaltyPointTransaction =
 export type DealRedemption = typeof dealRedemptions.$inferSelect;
 export type CommunityPost = typeof communityPosts.$inferSelect;
 export type CommunityGroup = typeof communityGroups.$inferSelect;
+
+// ===========================
+// SCHEDULING SYSTEM TYPE EXPORTS
+// ===========================
+export type InsertTimeSlot = z.infer<typeof insertTimeSlotSchema>;
+export type TimeSlot = typeof timeSlots.$inferSelect;
+export type InsertScheduleConflict = z.infer<typeof insertScheduleConflictSchema>;
+export type ScheduleConflict = typeof scheduleConflicts.$inferSelect;
+export type InsertScheduleAuditLog = z.infer<typeof insertScheduleAuditLogSchema>;
+export type ScheduleAuditLog = typeof scheduleAuditLog.$inferSelect;
 
 // Gamification System Tables
 export const badges = pgTable("badges", {

@@ -76,11 +76,19 @@ import {
   ObjectNotFoundError 
 } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
+import { 
+  SchedulingService, 
+  type AvailabilityRequest,
+  type SlotBookingRequest,
+  type AdminSlotOverrideRequest
+} from "./schedulingService";
 
 // Stripe Configuration - javascript_stripe integration
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2023-10-16',
-});
+}) : null;
+
+console.log(stripe ? '✅ Stripe initialized' : '⚠️  Stripe API key not configured - payment features disabled');
 
 // SendGrid Configuration - javascript_sendgrid integration  
 import { MailService } from '@sendgrid/mail';
@@ -89,6 +97,9 @@ const mailService = new MailService();
 if (process.env.SENDGRID_API_KEY) {
   mailService.setApiKey(process.env.SENDGRID_API_KEY);
 }
+
+// Initialize scheduling service
+const schedulingService = new SchedulingService();
 
 // Email notification service
 async function sendPaymentNotificationEmail(
@@ -1529,6 +1540,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invoice is not in payable status" });
       }
 
+      // Check if Stripe is configured
+      if (!stripe) {
+        return res.status(503).json({ error: "Payment service not configured" });
+      }
+
       // Create Stripe PaymentIntent
       const paymentIntent = await stripe.paymentIntents.create({
         amount: Math.round(Number(invoice.amountDue) * 100), // Convert to cents
@@ -1561,6 +1577,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!signature || !process.env.STRIPE_WEBHOOK_SECRET) {
         console.error("Missing Stripe webhook signature or secret");
         return res.status(400).json({ error: "Webhook signature verification failed" });
+      }
+
+      // Check if Stripe is configured
+      if (!stripe) {
+        console.error("Stripe webhook received but Stripe not configured");
+        return res.status(503).json({ error: "Payment service not configured" });
       }
 
       event = stripe.webhooks.constructEvent(
@@ -3230,6 +3252,434 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error searching for public object:", error);
       return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ===========================
+  // SCHEDULING SYSTEM ENDPOINTS
+  // ===========================
+
+  // Get contractor availability
+  app.get("/api/contractors/:id/availability", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id: contractorId } = req.params;
+      const { startDate, endDate, slotDuration, slotType, timezone } = req.query;
+
+      // Validate required parameters
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: "startDate and endDate are required" });
+      }
+
+      // Check if contractor exists
+      const contractor = await storage.getContractorProfile(contractorId);
+      if (!contractor) {
+        return res.status(404).json({ error: "Contractor not found" });
+      }
+
+      // Check access permissions
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      // Allow access if user is the contractor, admin, or member making a booking
+      const isContractor = contractor.userId === currentUser.id;
+      const isAdmin = currentUser.role === "admin";
+      
+      if (!isContractor && !isAdmin && currentUser.role !== "homeowner") {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const availabilityRequest: AvailabilityRequest = {
+        contractorId,
+        startDate: new Date(startDate as string),
+        endDate: new Date(endDate as string),
+        slotDuration: slotDuration as any || '2_hour',
+        slotType: slotType as any || 'standard',
+        timezone: timezone as string
+      };
+
+      const availableSlots = await schedulingService.generateAvailableSlots(availabilityRequest);
+      
+      res.json({
+        contractorId,
+        requestedPeriod: {
+          startDate: availabilityRequest.startDate,
+          endDate: availabilityRequest.endDate
+        },
+        totalSlots: availableSlots.length,
+        availableSlots: availableSlots
+      });
+    } catch (error: any) {
+      console.error("Error getting contractor availability:", error);
+      res.status(500).json({ 
+        error: "Internal server error", 
+        message: error.message 
+      });
+    }
+  });
+
+  // Check for scheduling conflicts
+  app.get("/api/schedules/conflicts", isAuthenticated, async (req: any, res) => {
+    try {
+      const { contractorId, startTime, endTime } = req.query;
+
+      if (!contractorId || !startTime || !endTime) {
+        return res.status(400).json({ 
+          error: "contractorId, startTime, and endTime are required" 
+        });
+      }
+
+      // Check access permissions
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const contractor = await storage.getContractorProfile(contractorId as string);
+      if (!contractor) {
+        return res.status(404).json({ error: "Contractor not found" });
+      }
+
+      const isContractor = contractor.userId === currentUser.id;
+      const isAdmin = currentUser.role === "admin";
+      
+      if (!isContractor && !isAdmin) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const bookingRequest: SlotBookingRequest = {
+        contractorId: contractorId as string,
+        startTime: new Date(startTime as string),
+        endTime: new Date(endTime as string),
+        slotType: 'standard',
+        workOrderId: 'check-only' // For conflict checking only
+      };
+
+      const conflicts = await schedulingService.detectConflicts(bookingRequest);
+      
+      res.json({
+        hasConflicts: conflicts.length > 0,
+        conflicts: conflicts,
+        requestedSlot: {
+          contractorId,
+          startTime: bookingRequest.startTime,
+          endTime: bookingRequest.endTime
+        }
+      });
+    } catch (error: any) {
+      console.error("Error checking scheduling conflicts:", error);
+      res.status(500).json({ 
+        error: "Internal server error", 
+        message: error.message 
+      });
+    }
+  });
+
+  // Enhanced work order creation with scheduling
+  app.post("/api/work-orders/scheduled", isAuthenticated, csrfProtection, requireRole(["admin", "contractor"]), async (req: any, res) => {
+    try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const {
+        // Standard work order fields
+        serviceRequestId,
+        contractorId,
+        description,
+        estimatedDuration,
+        actualDuration,
+        status,
+        completionNotes,
+        // Scheduling fields
+        scheduledStartDate,
+        scheduledEndDate,
+        slotType,
+        memberPreferredDates,
+        adminOverride = false,
+        overrideReason
+      } = req.body;
+
+      // Validate required fields
+      if (!serviceRequestId || !contractorId || !scheduledStartDate || !scheduledEndDate) {
+        return res.status(400).json({ 
+          error: "serviceRequestId, contractorId, scheduledStartDate, and scheduledEndDate are required" 
+        });
+      }
+
+      // Check if admin override is being used by non-admin
+      if (adminOverride && currentUser.role !== "admin") {
+        return res.status(403).json({ 
+          error: "Only admins can use scheduling overrides" 
+        });
+      }
+
+      const bookingRequest: SlotBookingRequest = {
+        contractorId,
+        startTime: new Date(scheduledStartDate),
+        endTime: new Date(scheduledEndDate),
+        slotType: slotType || 'standard',
+        workOrderId: `temp_${Date.now()}`, // Temporary ID for validation
+        memberPreferredDates: memberPreferredDates?.map((date: string) => new Date(date))
+      };
+
+      // Check for conflicts unless admin override is specified
+      if (!adminOverride) {
+        const conflicts = await schedulingService.detectConflicts(bookingRequest);
+        if (conflicts.length > 0) {
+          return res.status(409).json({
+            error: "Scheduling conflict detected",
+            conflicts: conflicts,
+            message: "The requested time slot conflicts with existing bookings. Use admin override to force booking."
+          });
+        }
+      }
+
+      // Create work order with scheduling information
+      const workOrderData = {
+        serviceRequestId,
+        contractorId,
+        description,
+        estimatedDuration,
+        actualDuration,
+        status: status || "created",
+        completionNotes,
+        scheduledStartDate: new Date(scheduledStartDate),
+        scheduledEndDate: new Date(scheduledEndDate),
+        slotType: slotType || 'standard',
+        memberPreferredDates: memberPreferredDates?.map((date: string) => new Date(date)),
+        hasSchedulingConflicts: adminOverride, // Mark if admin override was used
+        adminOverride: adminOverride,
+        adminOverrideReason: adminOverride ? overrideReason : null,
+        adminOverrideBy: adminOverride ? currentUser.id : null
+      };
+
+      const workOrder = await storage.createWorkOrder(workOrderData);
+
+      // If admin override was used, handle the override process
+      if (adminOverride && currentUser.role === "admin") {
+        const adminOverrideRequest: AdminSlotOverrideRequest = {
+          contractorId,
+          startTime: new Date(scheduledStartDate),
+          endTime: new Date(scheduledEndDate),
+          workOrderId: workOrder.id,
+          overrideReason: overrideReason || "Admin scheduling override",
+          adminUserId: currentUser.id
+        };
+
+        await schedulingService.handleAdminOverride(adminOverrideRequest);
+      } else {
+        // Book the slot normally
+        bookingRequest.workOrderId = workOrder.id;
+        await schedulingService.bookSlot(bookingRequest);
+      }
+
+      res.status(201).json({
+        ...workOrder,
+        schedulingInfo: {
+          conflictOverride: adminOverride,
+          slotBooked: true,
+          bookingTimestamp: new Date()
+        }
+      });
+    } catch (error: any) {
+      console.error("Error creating scheduled work order:", error);
+      if (error.message?.includes("Conflict")) {
+        return res.status(409).json({ 
+          error: "Scheduling conflict", 
+          message: error.message 
+        });
+      }
+      res.status(500).json({ 
+        error: "Internal server error", 
+        message: error.message 
+      });
+    }
+  });
+
+  // Admin schedule override endpoint
+  app.post("/api/admin/schedule-override", isAuthenticated, csrfProtection, requireRole(["admin"]), async (req: any, res) => {
+    try {
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const {
+        contractorId,
+        startTime,
+        endTime,
+        workOrderId,
+        overrideReason
+      } = req.body;
+
+      if (!contractorId || !startTime || !endTime || !workOrderId) {
+        return res.status(400).json({ 
+          error: "contractorId, startTime, endTime, and workOrderId are required" 
+        });
+      }
+
+      if (!overrideReason || overrideReason.trim().length === 0) {
+        return res.status(400).json({ 
+          error: "overrideReason is required for admin overrides" 
+        });
+      }
+
+      // Verify work order exists
+      const workOrder = await storage.getWorkOrder(workOrderId);
+      if (!workOrder) {
+        return res.status(404).json({ error: "Work order not found" });
+      }
+
+      const adminOverrideRequest: AdminSlotOverrideRequest = {
+        contractorId,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        workOrderId,
+        overrideReason: overrideReason.trim(),
+        adminUserId: currentUser.id
+      };
+
+      // Detect conflicts to show what's being overridden
+      const conflicts = await schedulingService.detectConflicts({
+        contractorId,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        slotType: 'standard',
+        workOrderId
+      });
+
+      // Handle the override
+      await schedulingService.handleAdminOverride(adminOverrideRequest);
+
+      // Update the work order to reflect the override
+      await storage.updateWorkOrder(workOrderId, {
+        scheduledStartDate: new Date(startTime),
+        scheduledEndDate: new Date(endTime),
+        hasSchedulingConflicts: true,
+        adminOverride: true,
+        adminOverrideReason: overrideReason.trim(),
+        adminOverrideBy: currentUser.id
+      });
+
+      res.json({
+        success: true,
+        message: "Admin scheduling override applied successfully",
+        overrideDetails: {
+          workOrderId,
+          conflictsOverridden: conflicts.length,
+          conflicts: conflicts,
+          overrideReason: overrideReason.trim(),
+          overriddenBy: currentUser.id,
+          overriddenAt: new Date()
+        }
+      });
+    } catch (error: any) {
+      console.error("Error applying admin schedule override:", error);
+      res.status(500).json({ 
+        error: "Internal server error", 
+        message: error.message 
+      });
+    }
+  });
+
+  // Get schedule conflicts for a contractor
+  app.get("/api/contractors/:id/conflicts", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id: contractorId } = req.params;
+      const { includeResolved = "false" } = req.query;
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const contractor = await storage.getContractorProfile(contractorId);
+      if (!contractor) {
+        return res.status(404).json({ error: "Contractor not found" });
+      }
+
+      // Check permissions
+      const isContractor = contractor.userId === currentUser.id;
+      const isAdmin = currentUser.role === "admin";
+      
+      if (!isContractor && !isAdmin) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const conflicts = await storage.getScheduleConflictsByContractor(
+        contractorId, 
+        includeResolved === "true"
+      );
+
+      res.json({
+        contractorId,
+        totalConflicts: conflicts.length,
+        unresolvedConflicts: conflicts.filter(c => !c.isResolved).length,
+        conflicts: conflicts
+      });
+    } catch (error: any) {
+      console.error("Error getting contractor conflicts:", error);
+      res.status(500).json({ 
+        error: "Internal server error", 
+        message: error.message 
+      });
+    }
+  });
+
+  // Resolve a schedule conflict
+  app.patch("/api/conflicts/:id/resolve", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
+    try {
+      const { id: conflictId } = req.params;
+      const { resolutionNotes } = req.body;
+
+      if (!resolutionNotes || resolutionNotes.trim().length === 0) {
+        return res.status(400).json({ 
+          error: "resolutionNotes are required" 
+        });
+      }
+
+      const currentUser = await storage.getUser(req.user.claims.sub);
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const conflict = await storage.getScheduleConflict(conflictId);
+      if (!conflict) {
+        return res.status(404).json({ error: "Conflict not found" });
+      }
+
+      // Check permissions - contractor can resolve their own conflicts, admin can resolve any
+      if (currentUser.role !== "admin") {
+        const contractor = await storage.getContractorProfile(conflict.contractorId);
+        if (!contractor || contractor.userId !== currentUser.id) {
+          return res.status(403).json({ error: "Access denied" });
+        }
+      }
+
+      const resolvedConflict = await storage.resolveScheduleConflict(
+        conflictId,
+        currentUser.id,
+        resolutionNotes.trim()
+      );
+
+      if (!resolvedConflict) {
+        return res.status(404).json({ error: "Conflict not found or already resolved" });
+      }
+
+      res.json({
+        success: true,
+        message: "Conflict resolved successfully",
+        conflict: resolvedConflict
+      });
+    } catch (error: any) {
+      console.error("Error resolving schedule conflict:", error);
+      res.status(500).json({ 
+        error: "Internal server error", 
+        message: error.message 
+      });
     }
   });
 
