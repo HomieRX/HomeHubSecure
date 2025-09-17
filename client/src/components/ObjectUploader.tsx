@@ -158,21 +158,6 @@ export function ObjectUploader({
     onFilesChange?.(newFiles);
   };
 
-  // Helper function to get CSRF token
-  const getCSRFToken = async (): Promise<string> => {
-    try {
-      const res = await fetch("/api/csrf-token", {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.csrfToken || "";
-      }
-    } catch (error) {
-      console.warn("Failed to fetch CSRF token:", error);
-    }
-    return "";
-  };
 
   // Upload files
   const uploadFiles = async () => {
@@ -194,39 +179,23 @@ export function ObjectUploader({
         formData.append('files', file);
       });
 
-      // Get CSRF token for the request
-      const csrfToken = await getCSRFToken();
-      const headers: Record<string, string> = {};
-      if (csrfToken) {
-        headers["X-CSRF-Token"] = csrfToken;
-      }
-
-      const response = await fetch('/api/uploads', {
-        method: 'POST',
-        headers,
-        body: formData,
-        credentials: 'include',
+      // Use apiRequest instead of manual fetch
+      const response = await apiRequest('POST', '/api/uploads', formData);
+      const result = await response.json();
+      
+      setUploadProgress(100);
+      
+      toast({
+        title: "Upload Successful",
+        description: `${selectedFiles.length} file(s) uploaded successfully.`,
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        setUploadProgress(100);
-        
-        toast({
-          title: "Upload Successful",
-          description: `${selectedFiles.length} file(s) uploaded successfully.`,
-        });
-
-        // Invalidate any related queries
-        queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
-        
-        onComplete?.(result.files);
-        setSelectedFiles([]);
-        onFilesChange?.([]);
-      } else {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
-      }
+      // Invalidate any related queries
+      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      
+      onComplete?.(result.files);
+      setSelectedFiles([]);
+      onFilesChange?.([]);
     } catch (error: any) {
       console.error('Upload error:', error);
       toast({

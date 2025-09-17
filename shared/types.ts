@@ -485,6 +485,7 @@ export const ServiceRequestCreateSchema = z.object({
   requiredSkills: z.array(z.string()).optional(),
   memberNotes: z.string().max(1000, "Notes too long").optional(),
   images: z.array(z.string().regex(urlRegex, "Invalid image URL")).optional(),
+  attachments: z.array(z.string().regex(urlRegex, "Invalid attachment URL")).optional(),
   
   // Service-specific metadata
   serviceMetadata: z.record(z.any()).optional(),
@@ -517,6 +518,7 @@ export const WorkOrderCreateSchema = z.object({
   // Documentation
   beforeImages: z.array(z.string().regex(urlRegex, "Invalid image URL")).optional(),
   afterImages: z.array(z.string().regex(urlRegex, "Invalid image URL")).optional(),
+  attachments: z.array(z.string().regex(urlRegex, "Invalid attachment URL")).optional(),
 }).strict();
 
 export const WorkOrderUpdateSchema = WorkOrderCreateSchema.partial().omit({ serviceRequestId: true, homeManagerId: true });
@@ -558,6 +560,7 @@ export const EstimateCreateSchema = z.object({
   
   terms: z.string().max(2000, "Terms too long").optional(),
   notes: z.string().max(1000, "Notes too long").optional(),
+  attachments: z.array(z.string().regex(urlRegex, "Invalid attachment URL")).optional(),
 }).strict();
 
 export const EstimateUpdateSchema = EstimateCreateSchema.partial().omit({ serviceRequestId: true, contractorId: true });
