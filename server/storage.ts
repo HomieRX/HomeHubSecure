@@ -32,6 +32,7 @@ import {
   type ForumPostVote, type InsertForumPostVote
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { seedComprehensiveData as seedComprehensiveDataFunction } from "./comprehensiveSeed";
 
 // Helper to merge updates without writing undefined values
 function applyDefined<T>(base: T, updates: Partial<Record<keyof T, unknown>>): T {
@@ -323,6 +324,9 @@ export interface IStorage {
   getScheduleAuditLogsByEntity(entityType: string, entityId: string): Promise<ScheduleAuditLog[]>;
   getScheduleAuditLogsByUser(userId: string, limit?: number): Promise<ScheduleAuditLog[]>;
   createScheduleAuditLog(auditEntry: InsertScheduleAuditLog): Promise<ScheduleAuditLog>;
+  
+  // Data seeding and initialization
+  seedComprehensiveData(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -1764,6 +1768,11 @@ export class MemStorage implements IStorage {
 
   async deleteMaintenanceItem(id: string): Promise<boolean> {
     return this.maintenanceItems.delete(id);
+  }
+
+  // Data seeding and initialization
+  async seedComprehensiveData(): Promise<void> {
+    return seedComprehensiveDataFunction(this);
   }
 }
 

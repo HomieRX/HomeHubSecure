@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import express from "express";
-import { storage } from "./storage";
+import { storage, getStorage } from "./storage";
 import { 
   setupAuth, 
   isAuthenticated, 
@@ -223,6 +223,14 @@ function sanitizeMerchantProfile(profile: MerchantProfile) {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
+  
+  // Initialize comprehensive seed data
+  try {
+    const storageInstance = await getStorage();
+    await storageInstance.seedComprehensiveData();
+  } catch (error) {
+    console.error("⚠️ Failed to seed comprehensive data:", error);
+  }
   
   // Raw body parsing for Stripe webhooks (must be before other body parsers)
   app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
