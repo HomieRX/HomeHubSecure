@@ -108,16 +108,12 @@ export default function MembershipRegistration({
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  // Check if user is logged in
-  const { data: currentUser } = useQuery<{ id: string; email?: string; firstName?: string; lastName?: string } | null>({
-    queryKey: ['/api/auth/user'],
-    retry: false
-  });
+  // Note: No authentication check needed - registration creates the user account
 
   const form = useForm<MembershipRegistrationForm>({
     resolver: zodResolver(MembershipRegistrationSchema),
     defaultValues: {
-      userId: currentUser?.id || "",
+      userId: "",
       nickname: "",
       firstName: "",
       lastName: "",
@@ -236,22 +232,6 @@ export default function MembershipRegistration({
   const selectedTierInfo = MEMBERSHIP_TIERS.find(t => t.id === selectedTier);
   const isFreeTier = selectedTierInfo?.monthlyPrice === 0;
 
-  if (!currentUser) {
-    return (
-      <RegistrationLayout
-        title={title}
-        subtitle="Please sign in to continue with your membership registration"
-        showBackButton={false}
-      >
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            You need to be signed in to register for a HomeHub membership. Please sign in and try again.
-          </AlertDescription>
-        </Alert>
-      </RegistrationLayout>
-    );
-  }
 
   return (
     <RegistrationLayout

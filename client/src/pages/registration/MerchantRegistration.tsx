@@ -99,13 +99,13 @@ const BUSINESS_TYPES = [
 ];
 
 const PAYMENT_METHODS = [
-  { id: "cash", label: "Cash" },
-  { id: "check", label: "Check" },
-  { id: "credit", label: "Credit Cards" },
-  { id: "debit", label: "Debit Cards" },
-  { id: "digital", label: "Digital Payments (PayPal, Venmo, etc.)" },
-  { id: "financing", label: "Financing Options" }
-];
+  { id: "cash" as const, label: "Cash" },
+  { id: "check" as const, label: "Check" },
+  { id: "credit" as const, label: "Credit Cards" },
+  { id: "debit" as const, label: "Debit Cards" },
+  { id: "digital" as const, label: "Digital Payments (PayPal, Venmo, etc.)" },
+  { id: "financing" as const, label: "Financing Options" }
+] as const;
 
 export default function MerchantRegistration() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -114,16 +114,12 @@ export default function MerchantRegistration() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  // Check if user is logged in
-  const { data: currentUser } = useQuery({
-    queryKey: ['/api/auth/user'],
-    retry: false
-  });
+  // Note: No authentication check needed - registration creates the user account
 
   const form = useForm<MerchantRegistrationForm>({
     resolver: zodResolver(MerchantRegistrationSchema),
     defaultValues: {
-      userId: currentUser?.id || "",
+      userId: "",
       businessName: "",
       ownerName: "",
       phone: "",
@@ -243,22 +239,6 @@ export default function MerchantRegistration() {
     }
   };
 
-  if (!currentUser) {
-    return (
-      <RegistrationLayout
-        title="Merchant Registration"
-        subtitle="Please sign in to continue with your merchant registration"
-        showBackButton={false}
-      >
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            You need to be signed in to register as a merchant. Please sign in and try again.
-          </AlertDescription>
-        </Alert>
-      </RegistrationLayout>
-    );
-  }
 
   return (
     <RegistrationLayout
@@ -510,11 +490,11 @@ export default function MerchantRegistration() {
                             <div key={method.id} className="flex items-center space-x-2">
                               <Checkbox
                                 id={method.id}
-                                checked={field.value?.includes(method.id) || false}
+                                checked={field.value?.includes(method.id as any) || false}
                                 onCheckedChange={(checked) => {
                                   const current = field.value || [];
                                   if (checked) {
-                                    field.onChange([...current, method.id]);
+                                    field.onChange([...current, method.id as any]);
                                   } else {
                                     field.onChange(current.filter(item => item !== method.id));
                                   }

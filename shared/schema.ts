@@ -29,6 +29,20 @@ export const membershipTierEnum = pgEnum("membership_tier", [
   "HomeGURU",
 ]);
 
+// Billing and payment enums
+export const membershipStatusEnum = pgEnum("membership_status", [
+  "free",             // Free tier member
+  "pending_payment",  // Awaiting payment confirmation
+  "active",           // Active paid membership
+  "past_due",         // Payment failed, grace period
+  "canceled",         // Membership canceled
+]);
+
+export const billingCycleEnum = pgEnum("billing_cycle", [
+  "monthly",          // Monthly billing
+  "yearly",           // Annual billing
+]);
+
 // Core HomeHub Service Types
 export const serviceTypeEnum = pgEnum("service_type", [
   "FixiT",
@@ -259,6 +273,15 @@ export const memberProfiles = pgTable("member_profiles", {
   membershipTier: membershipTierEnum("membership_tier")
     .notNull()
     .default("HomeHUB"),
+  // Billing and payment fields
+  membershipStatus: membershipStatusEnum("membership_status")
+    .notNull()
+    .default("free"),
+  billingCycle: billingCycleEnum("billing_cycle"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripePriceId: text("stripe_price_id"),
+  currentPeriodEnd: timestamp("current_period_end"),
   loyaltyPoints: integer("loyalty_points").notNull().default(0),
   bio: text("bio"),
   location: text("location"),
