@@ -1,0 +1,83 @@
+-- Enable required extension for exclusion constraints on ranges
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+-- Manager settings: capacity and windows
+CREATE TABLE IF NOT EXISTS manager_settings (
+  id SERIAL PRIMARY KEY,
+  home_manager_id INTEGER NOT NULL UNIQUE,
+  max_daily_jobs INTEGER NOT NULL DEFAULT 8,
+  service_window_start TIME NOT NULL DEFAULT '08:00', -- local ops window start
+  service_window_end   TIME NOT NULL DEFAULT '18:00', -- local ops window end
+  buffer_minutes INTEGER NOT NULL DEFAULT 20,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Time blocks: blackout, time-off, training, etc.
+-- A block prevents scheduling inside the [start,end) range
+CREATE TYPE manager_block_type AS ENUM('BLACKOUT','TIME_OFF','TRAINING','MAINTENANCE');
+
+CREATE TABLE IF NOT EXISTS manager_time_blocks (
+  id SERIAL PRIMARY KEY,
+  home_manager_id INTEGER NOT NULL,
+  block_type manager_block_type NOT NULL,
+  start_at TIMESTAMPTZ NOT NULL,
+  end_at   TIMESTAMPTZ NOT NULL,
+  reason TEXT,
+  created_by INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mgr_blocks_manager_start
+  ON manager_time_blocks(home_manager_id, start_at);
+
+-- Work orders: add fields for check-in/out, notes, files, and status tightening
+-- These columns are additive; existing rows remain valid.
+ALTER TABLE work_orders
+  ADD COLUMN IF NOT EXISTS check_in_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS check_in_lat DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS check_in_lng DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS check_out_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS before_photos JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS after_photos  JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS member_signature_url TEXT,
+  ADD COLUMN IF NOT EXISTS technician_notes TEXT,
+  ADD COLUMN IF NOT EXISTS line_items JSONB DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS extra_charges_cents INTEGER DEFAULT 0;
+
+-- Invoice: add numbering and PDF link
+ALTER TABLE invoices
+  ADD COLUMN IF NOT EXISTS invoice_number TEXT UNIQUE,
+  ADD COLUMN IF NOT EXISTS pdf_url TEXT;
+
+-- Safety/performance indexes
+CREATE INDEX IF NOT EXISTS idx_work_orders_manager_start
+  ON work_orders(home_manager_id, scheduled_start_date);
+CREATE INDEX IF NOT EXISTS idx_work_orders_member_start
+  ON work_orders(member_id, scheduled_start_date);
+
+-- Absolute double-booking prevention with 20-minute turnover buffers.
+-- We block overlap of (scheduled_start - 20m, scheduled_end + 20m) per manager.
+-- This enforces no-overlap even under race conditions.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'work_orders_no_overlap_manager_excl'
+  ) THEN
+    ALTER TABLE work_orders
+    ADD CONSTRAINT work_orders_no_overlap_manager_excl
+    EXCLUDE USING GIST (
+      home_manager_id WITH =,
+      tstzrange(
+        scheduled_start_date - INTERVAL '20 minutes',
+        scheduled_end_date   + INTERVAL '20 minutes',
+        '[)'
+      ) WITH &&
+    );
+  END IF;
+END$$;
+
+-- Daily capacity helper index
+CREATE INDEX IF NOT EXISTS idx_work_orders_manager_day
+  ON work_orders (home_manager_id, (date_trunc('day', scheduled_start_date)));

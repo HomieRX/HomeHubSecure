@@ -8,6 +8,9 @@ import {
   jsonb,
   integer,
   decimal,
+  real,
+  serial,
+  time,
   pgEnum,
   index,
   unique,
@@ -501,6 +504,17 @@ export const workOrders = pgTable("work_orders", {
   scheduledEndDate: timestamp("scheduled_end_date"),
   actualStartDate: timestamp("actual_start_date"),
   actualEndDate: timestamp("actual_end_date"),
+  checkInAt: timestamp('check_in_at', { withTimezone: true }),
+  checkInLat: real('check_in_lat'),
+  checkInLng: real('check_in_lng'),
+  checkOutAt: timestamp('check_out_at', { withTimezone: true }),
+  beforePhotos: jsonb('before_photos').$type<string[]>().default([]),
+  afterPhotos: jsonb('after_photos').$type<string[]>().default([]),
+  memberSignatureUrl: text('member_signature_url'),
+  technicianNotes: text('technician_notes'),
+  lineItems: jsonb('line_items').$type<Array<{ sku?: string; name: string; qty: number; cents: number }>>().default([]),
+  extraChargesCents: integer('extra_charges_cents').default(0),
+
   
   // Enhanced scheduling fields for conflict-aware system
   assignedSlotId: varchar("assigned_slot_id").references(() => timeSlots.id),
@@ -585,6 +599,7 @@ export const invoices = pgTable("invoices", {
     .notNull()
     .references(() => memberProfiles.id),
   invoiceNumber: text("invoice_number").notNull().unique(),
+  pdfUrl: text('pdf_url'),
   subtotal: decimal("subtotal", { precision: 8, scale: 2 }).notNull(),
   tax: decimal("tax", { precision: 8, scale: 2 }).notNull().default("0.00"),
   total: decimal("total", { precision: 8, scale: 2 }).notNull(),
@@ -1272,7 +1287,35 @@ export const bundleNotifications = pgTable("bundle_notifications", {
 
 // ===========================
 // SCHEDULING SYSTEM TABLES
-// ===========================
+// NEW: manager block type enum
+export const managerBlockTypeEnum = pgEnum('manager_block_type', [
+  'BLACKOUT','TIME_OFF','TRAINING','MAINTENANCE'
+]);
+
+// NEW: manager settings
+export const managerSettings = pgTable('manager_settings', {
+  id: serial('id').primaryKey(),
+  homeManagerId: integer('home_manager_id').notNull().unique(),
+  maxDailyJobs: integer('max_daily_jobs').notNull().default(8),
+  serviceWindowStart: time('service_window_start').notNull().default('08:00'),
+  serviceWindowEnd: time('service_window_end').notNull().default('18:00'),
+  bufferMinutes: integer('buffer_minutes').notNull().default(20),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+// NEW: manager time blocks
+export const managerTimeBlocks = pgTable('manager_time_blocks', {
+  id: serial('id').primaryKey(),
+  homeManagerId: integer('home_manager_id').notNull(),
+  blockType: managerBlockTypeEnum('block_type').notNull(),
+  startAt: timestamp('start_at', { withTimezone: true }).notNull(),
+  endAt: timestamp('end_at', { withTimezone: true }).notNull(),
+  reason: text('reason'),
+  createdBy: integer('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
 
 // Time slots for contractor availability
 export const timeSlots = pgTable("time_slots", {
