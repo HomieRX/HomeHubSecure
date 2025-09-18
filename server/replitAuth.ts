@@ -8,7 +8,7 @@ import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import MemoryStore from "memorystore";
-import { storage } from "./storage";
+import { getStorage } from "./storage";
 
 // Only require REPLIT_DOMAINS in production
 if (process.env.NODE_ENV === "production" && !process.env.REPLIT_DOMAINS) {
@@ -92,7 +92,7 @@ export async function upsertUser(
       ...(firstUser && { role: "admin" as any })
     };
     
-    await storage.upsertUser(userData);
+    await (await getStorage()).upsertUser(userData);
   } catch (error) {
     console.error("Error upserting user:", error);
     throw new Error("Failed to create or update user");
@@ -114,14 +114,14 @@ async function checkAndSetFirstUserAsAdmin(userId: string): Promise<boolean> {
   
   // Check if any admin users exist
   try {
-    const existingUser = await storage.getUser(userId);
+    const existingUser = await (await getStorage()).getUser(userId);
     if (existingUser?.role === "admin") {
       return true; // User is already admin
     }
     
     // Simple check: if this is the only user in the system, make them admin
     // Note: This is a basic implementation - in production you'd want more sophisticated logic
-    const allUsers = await storage.getAllUsers?.();
+    const allUsers = await (await getStorage()).getAllUsers?.();
     if (!allUsers || allUsers.length === 0) {
       console.log(`Setting first user ${userId} as admin (development mode)`);
       return true;
@@ -284,7 +284,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const user = await storage.getUser(userId);
+      const user = await (await getStorage()).getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -314,7 +314,7 @@ export const requireOwnershipOrAdmin = (resourceUserIdField = 'userId'): Request
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const currentUser = await storage.getUser(currentUserId);
+      const currentUser = await (await getStorage()).getUser(currentUserId);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
