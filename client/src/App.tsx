@@ -35,6 +35,15 @@ import AchievementsPage from "@/pages/AchievementsPage";
 import Admin from "@/pages/Admin";
 import NotFound from "@/pages/not-found";
 
+// Registration pages
+import RegistrationLanding from "@/pages/registration/RegistrationLanding";
+import ContractorRegistration from "@/pages/registration/ContractorRegistration";
+import MerchantRegistration from "@/pages/registration/MerchantRegistration";
+import HomeHubRegistration from "@/pages/registration/HomeHubRegistration";
+import HomeProRegistration from "@/pages/registration/HomeProRegistration";
+import HomeHeroRegistration from "@/pages/registration/HomeHeroRegistration";
+import HomeGuruRegistration from "@/pages/registration/HomeGuruRegistration";
+
 function DashboardPage() {
   return (
     <div className="p-6">
@@ -120,6 +129,15 @@ function App() {
         <Switch>
           {/* Admin route with its own layout */}
           <Route path="/admin" component={Admin} />
+          
+          {/* Registration routes with their own layout */}
+          <Route path="/register" component={RegistrationLanding} />
+          <Route path="/register/contractor" component={ContractorRegistration} />
+          <Route path="/register/merchant" component={MerchantRegistration} />
+          <Route path="/register/homehub" component={HomeHubRegistration} />
+          <Route path="/register/homepro" component={HomeProRegistration} />
+          <Route path="/register/homehero" component={HomeHeroRegistration} />
+          <Route path="/register/homeguru" component={HomeGuruRegistration} />
           
           {/* All other routes use the standard layout */}
           <Route>
