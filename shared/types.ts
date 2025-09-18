@@ -17,7 +17,7 @@ export type PaymentStatus = "pending" | "authorized" | "captured" | "failed" | "
 export type EscrowStatus = "pending" | "funded" | "released" | "disputed" | "refunded";
 
 // Common validation patterns
-const phoneRegex = /^\+?[1-9]\d{1,14}$/; // E.164 format
+const phoneRegex = /^(\+?1\s?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}$/; // US phone formats: (555) 123-4567, 555-123-4567, 555.123.4567, etc.
 const zipCodeRegex = /^\d{5}(-\d{4})?$/;
 const urlRegex = /^https?:\/\/.+\..+/;
 
@@ -66,7 +66,7 @@ export const MemberProfileCreateSchema = z.object({
   stripeCustomerId: z.string().optional(),
   stripeSubscriptionId: z.string().optional(),
   stripePriceId: z.string().optional(),
-  currentPeriodEnd: z.string().optional(), // ISO date string
+  currentPeriodEnd: z.date().optional(),
   bio: z.string().max(500, "Bio too long").optional(),
   location: z.string().max(100, "Location too long").optional(),
   
