@@ -41,41 +41,6 @@ import {
   type ForumPost,
   type ForumPostVote
 } from "@shared/schema";
-import {
-  // Enhanced validation schemas
-  UserProfileCreateSchema,
-  UserProfileUpdateSchema,
-  MemberProfileCreateSchema,
-  MemberProfileUpdateSchema,
-  ContractorProfileCreateSchema,
-  ContractorProfileUpdateSchema,
-  MerchantProfileCreateSchema,
-  MerchantProfileUpdateSchema,
-  ServiceRequestCreateSchema,
-  ServiceRequestUpdateSchema,
-  WorkOrderCreateSchema,
-  WorkOrderUpdateSchema,
-  EstimateCreateSchema,
-  EstimateUpdateSchema,
-  InvoiceCreateSchema,
-  InvoiceUpdateSchema,
-  MessageCreateSchema,
-  MessageUpdateSchema,
-  CalendarEventCreateSchema,
-  CalendarEventUpdateSchema,
-  DealCreateSchema,
-  DealUpdateSchema,
-  // Forum system schemas
-  ForumCreateSchema,
-  ForumUpdateSchema,
-  ForumTopicCreateSchema,
-  ForumTopicUpdateSchema,
-  ForumPostCreateSchema,
-  ForumPostUpdateSchema,
-  ForumVoteCreateSchema,
-  ForumModerationSchema,
-  ForumFlagSchema
-} from "@shared/types";
 import { 
   ServiceWorkflowManager, 
   SERVICE_CONFIGS, 
@@ -459,7 +424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/members", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = MemberProfileCreateSchema.parse(req.body);
+      const validatedData = insertMemberProfileSchema.parse(req.body);
       
       // Ensure the user is creating their own profile or is admin
       const currentUserId = req.user.claims.sub;
@@ -470,9 +435,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const profile = await (await getStorage()).createMemberProfile(validatedData);
+      // Process data for storage - the schema validation passes but storage needs exact types
+      const processedData = {
+        ...validatedData,
+        // Convert any date strings to Date objects if needed
+        // No additional processing needed for basic fields
+      };
+      
+      const profile = await (await getStorage()).createMemberProfile(processedData);
       res.status(201).json(profile);
     } catch (error: any) {
+      console.error("Member creation error:", error);
       if (error.name === 'ZodError') {
         return res.status(400).json({ error: "Invalid member profile data", details: error.errors });
       }
@@ -574,7 +547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/contractors", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = ContractorProfileCreateSchema.parse(req.body);
+      const validatedData = insertContractorProfileSchema.parse(req.body);
       
       // Ensure the user is creating their own profile or is admin
       const currentUserId = req.user.claims.sub;
@@ -585,9 +558,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const profile = await (await getStorage()).createContractorProfile(validatedData);
+      // Convert string dates to Date objects for database compatibility
+      const processedData = {
+        ...validatedData,
+        licenseExpiryDate: validatedData.licenseExpiryDate ? new Date(validatedData.licenseExpiryDate) : undefined
+      };
+      
+      const profile = await (await getStorage()).createContractorProfile(processedData);
       res.status(201).json(profile);
     } catch (error: any) {
+      console.error("Contractor creation error:", error);
       if (error.name === 'ZodError') {
         return res.status(400).json({ error: "Invalid contractor profile data", details: error.errors });
       }
@@ -696,7 +676,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/merchants", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = MerchantProfileCreateSchema.parse(req.body);
+      const validatedData = insertMerchantProfileSchema.parse(req.body);
       
       // Ensure the user is creating their own profile or is admin
       const currentUserId = req.user.claims.sub;

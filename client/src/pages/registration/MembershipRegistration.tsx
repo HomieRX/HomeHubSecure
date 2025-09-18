@@ -154,14 +154,8 @@ export default function MembershipRegistration({
   // Registration mutation
   const registerMutation = useMutation({
     mutationFn: async (data: MembershipRegistrationForm) => {
-      // Create user with homeowner role
-      const userResponse = await apiRequest("POST", "/api/auth/create-user", {
-        role: "homeowner",
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email
-      });
-
+      // Get current authenticated user (auto-created by OIDC)
+      const userResponse = await apiRequest("GET", "/api/auth/user");
       const user = await userResponse.json();
 
       // Create member profile

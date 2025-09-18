@@ -60,13 +60,6 @@ export const MemberProfileCreateSchema = z.object({
   avatarUrl: z.string().regex(urlRegex, "Invalid URL format").optional(),
   coverImageUrl: z.string().regex(urlRegex, "Invalid URL format").optional(),
   membershipTier: z.enum(["HomeHUB", "HomePRO", "HomeHERO", "HomeGURU"]).default("HomeHUB"),
-  // Billing and payment fields
-  membershipStatus: z.enum(["free", "pending_payment", "active", "past_due", "canceled"]).default("free"),
-  billingCycle: z.enum(["monthly", "yearly"]).optional(),
-  stripeCustomerId: z.string().optional(),
-  stripeSubscriptionId: z.string().optional(),
-  stripePriceId: z.string().optional(),
-  currentPeriodEnd: z.date().optional(),
   bio: z.string().max(500, "Bio too long").optional(),
   location: z.string().max(100, "Location too long").optional(),
   
