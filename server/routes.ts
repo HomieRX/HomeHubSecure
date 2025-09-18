@@ -266,7 +266,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Exclude: username, password (even if null)
       };
       
-      res.json(sanitizedUser);
+      res.json({ user: sanitizedUser });
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ error: "Failed to fetch user" });
