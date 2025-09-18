@@ -1,16 +1,50 @@
-import { format, addDays, addHours, isBefore, isAfter, isEqual, startOfDay, endOfDay, parseISO } from 'date-fns';
-import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 import {
-  type TimeSlot, 
+  format,
+  addDays,
+  addHours,
+  addMinutes,
+  isBefore,
+  isAfter,
+  isEqual,
+  startOfDay,
+  endOfDay,
+  parseISO,
+  differenceInMinutes,
+  isSameDay,
+} from "date-fns";
+import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import {
+  type TimeSlot,
   type InsertTimeSlot,
   type ScheduleConflict,
   type InsertScheduleConflict,
   type WorkOrder,
   type ContractorProfile,
   slotDurationEnum,
-  conflictSeverityEnum
-} from '@shared/schema';
-import { storage } from './storage';
+  conflictSeverityEnum,
+} from "@shared/schema";
+import { storage } from "./storage";
+
+// ===========================
+// INTERNAL TYPES (non-breaking)
+// ===========================
+
+type ManagerSettings = {
+  homeManagerId: string;
+  maxDailyJobs: number;
+  serviceWindowStart: string; // "08:00"
+  serviceWindowEnd: string; // "18:00"
+  bufferMinutes: number; // default 20
+};
+
+type ManagerTimeBlock = {
+  id: string;
+  homeManagerId: string;
+  blockType: "BLACKOUT" | "TIME_OFF" | "TRAINING" | "MAINTENANCE";
+  startAt: Date;
+  endAt: Date;
+  reason?: string;
+};
 
 // ===========================
 // SCHEDULING SERVICE TYPES
@@ -47,7 +81,7 @@ export interface AdminSlotOverrideRequest {
 }
 
 export interface ConflictDetails {
-  severity: "hard" | "soft" | "travel";
+  severity: "hard" | "soft" | "travel" | "policy";
   conflictingSlots: TimeSlot[];
   conflictingWorkOrders: WorkOrder[];
   description: string;
@@ -67,15 +101,15 @@ export interface SchedulingResult {
 }
 
 export interface ContractorWorkingHours {
-  monday?: { start: string; end: string; };
-  tuesday?: { start: string; end: string; };
-  wednesday?: { start: string; end: string; };
-  thursday?: { start: string; end: string; };
-  friday?: { start: string; end: string; };
-  saturday?: { start: string; end: string; };
-  sunday?: { start: string; end: string; };
+  monday?: { start: string; end: string };
+  tuesday?: { start: string; end: string };
+  wednesday?: { start: string; end: string };
+  thursday?: { start: string; end: string };
+  friday?: { start: string; end: string };
+  saturday?: { start: string; end: string };
+  sunday?: { start: string; end: string };
   timezone: string;
-  breaks?: Array<{ start: string; end: string; }>;
+  breaks?: Array<{ start: string; end: string }>;
 }
 
 // ===========================
@@ -83,62 +117,97 @@ export interface ContractorWorkingHours {
 // ===========================
 
 export class SchedulingService {
-  private defaultTimezone = 'America/New_York';
+  private defaultTimezone = "America/New_York";
+  // Business rules
+  private TURNOVER_BUFFER_MINUTES = 20; // no job within +/- 20 mins
+  private TRAVEL_MINUTES = 20; // naive travel pad if different address
 
   /**
    * Generate available time slots for a contractor based on their working hours and existing bookings
    */
-  async generateAvailableSlots(request: AvailabilityRequest): Promise<TimeSlot[]> {
+  async generateAvailableSlots(
+    request: AvailabilityRequest,
+  ): Promise<TimeSlot[]> {
     const contractor = await storage.getContractorProfile(request.contractorId);
     if (!contractor) {
       throw new Error(`Contractor ${request.contractorId} not found`);
     }
 
+    const managerId = await this.resolveManagerIdForContractor(contractor);
+    const mgrSettings = await this.getManagerSettings(managerId);
+
     // Get contractor's working hours from profile
-    const workingHours = this.parseContractorAvailability(contractor);
-    
+    const workingHours = this.parseContractorAvailability(
+      contractor,
+      mgrSettings,
+    );
+
     // Get existing bookings and blocked slots
-    const existingSlots = await storage.getContractorTimeSlots(request.contractorId, request.startDate, request.endDate);
-    const existingWorkOrders = await storage.getWorkOrdersByContractor(request.contractorId);
-    
+    const existingSlots = await storage.getContractorTimeSlots(
+      request.contractorId,
+      request.startDate,
+      request.endDate,
+    );
+    const existingWorkOrders = await storage.getWorkOrdersByContractor(
+      request.contractorId,
+    );
+
+    // Manager blocks (blackouts, time off)
+    const managerBlocks = await this.getManagerTimeBlocks(
+      managerId,
+      request.startDate,
+      request.endDate,
+    );
+
     const availableSlots: InsertTimeSlot[] = [];
-    const slotDuration = this.getSlotDurationMinutes(request.slotDuration || '2_hour');
-    
+    const slotDuration = this.getSlotDurationMinutes(
+      request.slotDuration || "2_hour",
+    );
+
     // Generate slots for each day in the range
     let currentDate = new Date(request.startDate);
     while (currentDate <= request.endDate) {
-      const daySlots = this.generateSlotsForDay(
+      // Capacity gate: if day already at or over capacity, skip generating slots for the day
+      const capacityReached = await this.isDailyCapacityReached(
+        managerId,
         currentDate,
-        workingHours,
-        slotDuration,
-        request.contractorId,
-        request.slotType || 'standard',
-        request.timezone
+        mgrSettings,
       );
-      
-      // Filter out conflicting slots
-      const nonConflictingSlots = this.filterConflictingSlots(
-        daySlots, 
-        existingSlots, 
-        existingWorkOrders
-      );
-      
-      availableSlots.push(...nonConflictingSlots);
+      if (!capacityReached) {
+        const daySlots = this.generateSlotsForDay(
+          currentDate,
+          workingHours,
+          slotDuration,
+          mgrSettings.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES,
+          request.contractorId,
+          request.slotType || "standard",
+          request.timezone,
+          managerBlocks,
+        );
+
+        // Filter out conflicts with existing reservations/work orders
+        const nonConflictingSlots = this.filterConflictingSlots(
+          daySlots,
+          existingSlots,
+          existingWorkOrders,
+          mgrSettings,
+        );
+
+        availableSlots.push(...nonConflictingSlots);
+      }
       currentDate = addDays(currentDate, 1);
     }
 
-    // CRITICAL FIX: Persist each slot to database for durable IDs instead of ephemeral ones
+    // Persist each slot to DB so they have durable IDs
     const persistedSlots: TimeSlot[] = [];
-    
     for (const slotData of availableSlots) {
       try {
-        // Check if slot already exists to avoid duplicates
         const existingSlot = await this.findExistingSlot(
-          request.contractorId, 
-          slotData.startTime, 
-          slotData.endTime
+          request.contractorId,
+          slotData.startTime,
+          slotData.endTime,
         );
-        
+
         if (!existingSlot) {
           const persistedSlot = await storage.createTimeSlot(slotData);
           persistedSlots.push(persistedSlot);
@@ -146,8 +215,7 @@ export class SchedulingService {
           persistedSlots.push(existingSlot);
         }
       } catch (error) {
-        console.error('Error persisting slot:', error);
-        // Continue with other slots even if one fails
+        console.error("Error persisting slot:", error);
       }
     }
 
@@ -157,45 +225,110 @@ export class SchedulingService {
   /**
    * Detect scheduling conflicts for a booking request
    */
-  async detectConflicts(request: SlotBookingRequest): Promise<ConflictDetails[]> {
+  async detectConflicts(
+    request: SlotBookingRequest,
+  ): Promise<ConflictDetails[]> {
     const conflicts: ConflictDetails[] = [];
-    
-    // Get overlapping time slots
+
+    const contractor = await storage.getContractorProfile(request.contractorId);
+    const managerId = await this.resolveManagerIdForContractor(contractor);
+    const mgrSettings = await this.getManagerSettings(managerId);
+
+    // Expand the overlap window by buffer minutes to enforce turnover at the app layer
+    const startWithBuffer = addMinutes(
+      request.startTime,
+      -(mgrSettings.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES),
+    );
+    const endWithBuffer = addMinutes(
+      request.endTime,
+      +(mgrSettings.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES),
+    );
+
+    // Overlapping time slots and work orders, using buffer-expanded window
     const overlappingSlots = await storage.getOverlappingTimeSlots(
       request.contractorId,
-      request.startTime,
-      request.endTime
+      startWithBuffer,
+      endWithBuffer,
     );
 
-    // Get overlapping work orders
     const overlappingWorkOrders = await storage.getOverlappingWorkOrders(
       request.contractorId,
-      request.startTime,
-      request.endTime
+      startWithBuffer,
+      endWithBuffer,
     );
 
-    // Check for hard conflicts (direct overlaps)
     if (overlappingSlots.length > 0 || overlappingWorkOrders.length > 0) {
       conflicts.push({
         severity: "hard",
         conflictingSlots: overlappingSlots,
         conflictingWorkOrders: overlappingWorkOrders,
-        description: `Time slot conflicts with ${overlappingSlots.length} existing slots and ${overlappingWorkOrders.length} work orders`,
-        canOverride: true // Admins can override
+        description: `Conflicts within ${mgrSettings.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES} min buffer (${overlappingSlots.length} slots, ${overlappingWorkOrders.length} work orders).`,
+        canOverride: true,
       });
     }
 
-    // Check for soft conflicts (buffer time violations)
-    const bufferConflicts = await this.checkBufferTimeConflicts(request);
-    if (bufferConflicts.length > 0) {
-      conflicts.push(...bufferConflicts);
+    // Service window policy
+    const outside = await this.isOutsideServiceWindow(
+      managerId,
+      request.startTime,
+      request.endTime,
+      mgrSettings,
+    );
+    if (outside) {
+      conflicts.push({
+        severity: "policy",
+        conflictingSlots: [],
+        conflictingWorkOrders: [],
+        description: `Requested time is outside manager service window ${mgrSettings.serviceWindowStart}–${mgrSettings.serviceWindowEnd}.`,
+        canOverride: false,
+      });
     }
 
-    // Check for travel time conflicts  
-    const travelConflicts = await this.checkTravelTimeConflicts(request);
-    if (travelConflicts.length > 0) {
-      conflicts.push(...travelConflicts);
+    // Blackouts/time-off
+    const blocked = await this.isInManagerBlock(
+      managerId,
+      request.startTime,
+      request.endTime,
+    );
+    if (blocked) {
+      conflicts.push({
+        severity: "policy",
+        conflictingSlots: [],
+        conflictingWorkOrders: [],
+        description: `Requested time falls inside a manager blackout/time-off block.`,
+        canOverride: false,
+      });
     }
+
+    // Capacity for that day
+    const capacityReached = await this.isDailyCapacityReached(
+      managerId,
+      request.startTime,
+      mgrSettings,
+    );
+    if (capacityReached) {
+      conflicts.push({
+        severity: "policy",
+        conflictingSlots: [],
+        conflictingWorkOrders: [],
+        description: `Daily capacity reached for ${format(request.startTime, "yyyy-MM-dd")}.`,
+        canOverride: true,
+      });
+    }
+
+    // Turnover soft conflicts (kept at app layer for context)
+    const bufferConflicts = await this.checkBufferTimeConflicts(
+      request,
+      mgrSettings.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES,
+    );
+    if (bufferConflicts.length > 0) conflicts.push(...bufferConflicts);
+
+    // Travel conflicts
+    const travelConflicts = await this.checkTravelTimeConflicts(
+      request,
+      this.TRAVEL_MINUTES,
+    );
+    if (travelConflicts.length > 0) conflicts.push(...travelConflicts);
 
     return conflicts;
   }
@@ -204,38 +337,29 @@ export class SchedulingService {
    * Book a time slot, handling conflicts and admin overrides
    */
   async bookSlot(request: SlotBookingRequest): Promise<SchedulingResult> {
-    // Detect conflicts first
     const conflicts = await this.detectConflicts(request);
-    
-    // Check if booking is allowed
-    const hardConflicts = conflicts.filter(c => c.severity === 'hard');
-    if (hardConflicts.length > 0 && !request.adminOverride) {
-      // Generate alternative slots
+
+    // Reject on hard/policy conflicts unless admin override
+    const blocking = conflicts.filter(
+      (c) =>
+        c.severity === "hard" || (c.severity === "policy" && !c.canOverride),
+    );
+    if (blocking.length > 0 && !request.adminOverride) {
       const alternatives = await this.generateAlternativeSlots(request);
-      
-      return {
-        success: false,
-        conflicts: hardConflicts,
-        alternatives
-      };
+      return { success: false, conflicts: blocking, alternatives };
     }
 
-    // Proceed with booking
     try {
       let assignedSlot: TimeSlot;
-      
+
       if (request.slotId) {
-        // Use existing slot
         const slot = await storage.getTimeSlot(request.slotId);
-        if (!slot || !slot.isAvailable) {
-          throw new Error('Requested slot is not available');
-        }
+        if (!slot || !slot.isAvailable)
+          throw new Error("Requested slot is not available");
         assignedSlot = slot;
-        
-        // Update slot to mark as booked
         await storage.updateTimeSlot(request.slotId, { isAvailable: false });
       } else {
-        // Create new slot
+        // Create new slot marked as booked
         const newSlot: InsertTimeSlot = {
           contractorId: request.contractorId,
           slotDate: request.startTime,
@@ -243,48 +367,49 @@ export class SchedulingService {
           endTime: request.endTime,
           slotType: request.slotType as any,
           duration: this.getDurationFromMinutes(
-            (request.endTime.getTime() - request.startTime.getTime()) / 60000
+            (request.endTime.getTime() - request.startTime.getTime()) / 60000,
           ),
-          isAvailable: false, // Mark as booked immediately
-          isRecurring: false
+          isAvailable: false,
+          isRecurring: false,
         };
-        
         assignedSlot = await storage.createTimeSlot(newSlot);
       }
 
-      // Update work order with slot assignment
       await storage.updateWorkOrder(request.workOrderId, {
         assignedSlotId: assignedSlot.id,
         scheduledStartDate: request.startTime,
         scheduledEndDate: request.endTime,
         slotType: request.slotType as any,
-        scheduledDuration: (request.endTime.getTime() - request.startTime.getTime()) / 60000,
+        scheduledDuration:
+          (request.endTime.getTime() - request.startTime.getTime()) / 60000,
         hasSchedulingConflicts: conflicts.length > 0,
-        conflictOverrideReason: request.adminOverride ? request.overrideReason : undefined,
-        conflictOverrideBy: request.adminOverride ? request.overrideBy : undefined,
-        conflictOverrideAt: request.adminOverride ? new Date() : undefined
+        conflictOverrideReason: request.adminOverride
+          ? request.overrideReason
+          : undefined,
+        conflictOverrideBy: request.adminOverride
+          ? request.overrideBy
+          : undefined,
+        conflictOverrideAt: request.adminOverride ? new Date() : undefined,
       });
 
-      // Log conflicts if admin override was used
       if (request.adminOverride && conflicts.length > 0) {
         await this.logSchedulingConflicts(request, conflicts);
         await this.auditOverrideAction(request);
       }
 
-      // Log successful booking
       await storage.createScheduleAuditLog({
-        action: 'schedule_created',
-        entityType: 'work_order',
+        action: "schedule_created",
+        entityType: "work_order",
         entityId: request.workOrderId,
         userId: request.overrideBy,
-        userRole: 'admin', // This should come from the actual user context
+        userRole: request.adminOverride ? "admin" : "member",
         newValues: {
           slotId: assignedSlot.id,
           startTime: request.startTime.toISOString(),
-          endTime: request.endTime.toISOString()
+          endTime: request.endTime.toISOString(),
         },
         reason: request.overrideReason,
-        adminOverride: request.adminOverride || false
+        adminOverride: request.adminOverride || false,
       });
 
       return {
@@ -294,12 +419,24 @@ export class SchedulingService {
           slotId: assignedSlot.id,
           workOrderId: request.workOrderId,
           startTime: request.startTime,
-          endTime: request.endTime
-        }
+          endTime: request.endTime,
+        },
       };
-      
-    } catch (error) {
-      console.error('Error booking slot:', error);
+    } catch (error: any) {
+      // Map DB-level exclusion constraint to a clean 409 if present
+      const msg = String(error?.message || "");
+      if (msg.includes("work_orders_no_overlap_manager_excl")) {
+        throw Object.assign(
+          new Error(
+            "Scheduling conflict: manager already booked (20 min buffer enforced).",
+          ),
+          {
+            status: 409,
+            code: "OVERLAP",
+          },
+        );
+      }
+      console.error("Error booking slot:", error);
       throw error;
     }
   }
@@ -307,26 +444,30 @@ export class SchedulingService {
   /**
    * Generate alternative time slots when conflicts exist
    */
-  async generateAlternativeSlots(originalRequest: SlotBookingRequest): Promise<TimeSlot[]> {
-    const duration = originalRequest.endTime.getTime() - originalRequest.startTime.getTime();
+  async generateAlternativeSlots(
+    originalRequest: SlotBookingRequest,
+  ): Promise<TimeSlot[]> {
+    const duration =
+      originalRequest.endTime.getTime() - originalRequest.startTime.getTime();
     const startDate = new Date(originalRequest.startTime);
     const endDate = addDays(startDate, 14); // Look ahead 2 weeks
-    
+
     const availabilityRequest: AvailabilityRequest = {
       contractorId: originalRequest.contractorId,
       startDate,
       endDate,
       timezone: this.defaultTimezone,
       slotType: originalRequest.slotType,
-      slotDuration: this.getDurationFromMinutes(duration / 60000)
+      slotDuration: this.getDurationFromMinutes(duration / 60000),
     };
-    
-    const availableSlots = await this.generateAvailableSlots(availabilityRequest);
-    
+
+    const availableSlots =
+      await this.generateAvailableSlots(availabilityRequest);
+
     // Return first 5 alternatives, excluding the original requested time
     return availableSlots
-      .filter(slot => 
-        !isEqual(new Date(slot.startTime), originalRequest.startTime)
+      .filter(
+        (slot) => !isEqual(new Date(slot.startTime), originalRequest.startTime),
       )
       .slice(0, 5);
   }
@@ -335,49 +476,47 @@ export class SchedulingService {
    * Match member preferred dates with available contractor slots
    */
   async matchPreferredDates(
-    contractorId: string, 
-    preferredDates: { date: string; time?: string; }[],
-    slotDuration: string = '2_hour',
-    timezone: string = this.defaultTimezone
+    contractorId: string,
+    preferredDates: { date: string; time?: string }[],
+    slotDuration: string = "2_hour",
+    timezone: string = this.defaultTimezone,
   ): Promise<{ preference: number; slots: TimeSlot[] }[]> {
     const matchedSlots: { preference: number; slots: TimeSlot[] }[] = [];
-    
+
     for (let i = 0; i < preferredDates.length; i++) {
       const preferred = preferredDates[i];
       const preferredDate = parseISO(preferred.date);
-      
-      // Generate availability for just this day
+
       const dayStart = startOfDay(preferredDate);
       const dayEnd = endOfDay(preferredDate);
-      
+
       const availabilityRequest: AvailabilityRequest = {
         contractorId,
         startDate: dayStart,
         endDate: dayEnd,
         timezone,
         slotDuration,
-        slotType: 'standard'
+        slotType: "standard",
       };
-      
-      const availableSlots = await this.generateAvailableSlots(availabilityRequest);
-      
-      // If specific time is preferred, filter for slots near that time
+
+      const availableSlots =
+        await this.generateAvailableSlots(availabilityRequest);
+
       let matchingSlots = availableSlots;
       if (preferred.time) {
         const preferredTime = parseISO(`${preferred.date}T${preferred.time}`);
-        matchingSlots = availableSlots.filter(slot => {
+        matchingSlots = availableSlots.filter((slot) => {
           const slotStart = new Date(slot.startTime);
-          const timeDiff = Math.abs(slotStart.getTime() - preferredTime.getTime());
+          const timeDiff = Math.abs(
+            slotStart.getTime() - preferredTime.getTime(),
+          );
           return timeDiff <= 2 * 60 * 60 * 1000; // Within 2 hours
         });
       }
-      
-      matchedSlots.push({
-        preference: i + 1,
-        slots: matchingSlots
-      });
+
+      matchedSlots.push({ preference: i + 1, slots: matchingSlots });
     }
-    
+
     return matchedSlots;
   }
 
@@ -385,236 +524,338 @@ export class SchedulingService {
   // PRIVATE HELPER METHODS
   // ===========================
 
-  private parseContractorAvailability(contractor: ContractorProfile): ContractorWorkingHours {
-    // Default working hours if not specified
+  private parseContractorAvailability(
+    contractor: ContractorProfile,
+    mgr: ManagerSettings,
+  ): ContractorWorkingHours {
     const defaultHours: ContractorWorkingHours = {
-      monday: { start: '08:00', end: '17:00' },
-      tuesday: { start: '08:00', end: '17:00' },
-      wednesday: { start: '08:00', end: '17:00' },
-      thursday: { start: '08:00', end: '17:00' },
-      friday: { start: '08:00', end: '17:00' },
-      timezone: this.defaultTimezone
+      monday: { start: "08:00", end: "17:00" },
+      tuesday: { start: "08:00", end: "17:00" },
+      wednesday: { start: "08:00", end: "17:00" },
+      thursday: { start: "08:00", end: "17:00" },
+      friday: { start: "08:00", end: "17:00" },
+      timezone: this.defaultTimezone,
     };
 
-    // Parse availability from contractor profile if it exists
-    if (contractor.availability && typeof contractor.availability === 'object') {
-      return { ...defaultHours, ...contractor.availability };
+    const hours =
+      contractor.availability && typeof contractor.availability === "object"
+        ? { ...defaultHours, ...contractor.availability }
+        : defaultHours;
+
+    // Clamp by manager's service window
+    const clamp = (start: string, end: string) => {
+      const s = start < mgr.serviceWindowStart ? mgr.serviceWindowStart : start;
+      const e = end > mgr.serviceWindowEnd ? mgr.serviceWindowEnd : end;
+      return { start: s, end: e };
+    };
+
+    for (const dow of [
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
+      "sunday",
+    ] as const) {
+      if ((hours as any)[dow]) {
+        (hours as any)[dow] = clamp(
+          (hours as any)[dow].start,
+          (hours as any)[dow].end,
+        );
+      }
     }
 
-    return defaultHours;
+    return hours;
   }
 
   private generateSlotsForDay(
     date: Date,
     workingHours: ContractorWorkingHours,
     slotDurationMinutes: number,
+    bufferMinutes: number,
     contractorId: string,
     slotType: string,
-    timezone: string
+    timezone: string,
+    managerBlocks: ManagerTimeBlock[],
   ): InsertTimeSlot[] {
     const slots: InsertTimeSlot[] = [];
-    const dayOfWeek = format(date, 'EEEE').toLowerCase() as keyof Omit<ContractorWorkingHours, 'timezone' | 'breaks'>;
-    
+    const dayOfWeek = format(date, "EEEE").toLowerCase() as keyof Omit<
+      ContractorWorkingHours,
+      "timezone" | "breaks"
+    >;
+
     const dayHours = workingHours[dayOfWeek];
     if (!dayHours) return slots; // Not working this day
-    
-    // Parse start and end times
-    const [startHour, startMin] = dayHours.start.split(':').map(Number);
-    const [endHour, endMin] = dayHours.end.split(':').map(Number);
-    
+
+    const [startHour, startMin] = dayHours.start.split(":").map(Number);
+    const [endHour, endMin] = dayHours.end.split(":").map(Number);
+
     const startTime = new Date(date);
     startTime.setHours(startHour, startMin, 0, 0);
-    
     const endTime = new Date(date);
     endTime.setHours(endHour, endMin, 0, 0);
-    
-    // Generate slots
+
+    // Optional lunch/break blocks
+    const breaks =
+      workingHours.breaks?.map((b) => ({
+        start: this.composeDateTime(date, b.start),
+        end: this.composeDateTime(date, b.end),
+      })) || [];
+
     let currentSlotStart = new Date(startTime);
-    while (currentSlotStart.getTime() + (slotDurationMinutes * 60 * 1000) <= endTime.getTime()) {
-      const currentSlotEnd = new Date(currentSlotStart.getTime() + (slotDurationMinutes * 60 * 1000));
-      
-      slots.push({
-        contractorId,
-        slotDate: new Date(date),
-        startTime: new Date(currentSlotStart),
-        endTime: new Date(currentSlotEnd),
-        slotType: slotType as any,
-        duration: this.getDurationFromMinutes(slotDurationMinutes),
-        isAvailable: true,
-        isRecurring: false
-      });
-      
-      // Move to next slot (with potential gap/break handling)
-      currentSlotStart = new Date(currentSlotEnd);
+
+    while (
+      currentSlotStart.getTime() + slotDurationMinutes * 60 * 1000 <=
+      endTime.getTime()
+    ) {
+      const currentSlotEnd = new Date(
+        currentSlotStart.getTime() + slotDurationMinutes * 60 * 1000,
+      );
+
+      // Skip if slot overlaps any break
+      const overlapsBreak = breaks.some((br) =>
+        this.timesOverlap(currentSlotStart, currentSlotEnd, br.start, br.end),
+      );
+      if (overlapsBreak) {
+        currentSlotStart = new Date(
+          this.bumpPastBlock(currentSlotStart, breaks),
+        );
+        continue;
+      }
+
+      // Skip if slot overlaps manager blackout/time-off
+      const overlapsBlock = managerBlocks.some((b) =>
+        this.timesOverlap(currentSlotStart, currentSlotEnd, b.startAt, b.endAt),
+      );
+      if (!overlapsBlock) {
+        // Push slot, but step forward by duration + turnover buffer to avoid back-to-back slots
+        slots.push({
+          contractorId,
+          slotDate: new Date(date),
+          startTime: new Date(currentSlotStart),
+          endTime: new Date(currentSlotEnd),
+          slotType: slotType as any,
+          duration: this.getDurationFromMinutes(slotDurationMinutes),
+          isAvailable: true,
+          isRecurring: false,
+        });
+      }
+
+      currentSlotStart = addMinutes(currentSlotEnd, bufferMinutes);
     }
-    
+
     return slots;
   }
 
   private filterConflictingSlots(
     generatedSlots: InsertTimeSlot[],
     existingSlots: TimeSlot[],
-    existingWorkOrders: WorkOrder[]
+    existingWorkOrders: WorkOrder[],
+    mgrSettings: ManagerSettings,
   ): InsertTimeSlot[] {
-    return generatedSlots.filter(slot => {
-      // Check against existing slots
-      const hasSlotConflict = existingSlots.some(existing => 
+    const buffer = mgrSettings.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES;
+
+    return generatedSlots.filter((slot) => {
+      // Compare with existing slots with buffer padding
+      const hasSlotConflict = existingSlots.some((existing) =>
         this.timesOverlap(
-          new Date(slot.startTime), 
-          new Date(slot.endTime),
+          addMinutes(new Date(slot.startTime), -buffer),
+          addMinutes(new Date(slot.endTime), +buffer),
           new Date(existing.startTime),
-          new Date(existing.endTime)
-        )
+          new Date(existing.endTime),
+        ),
       );
-      
-      // Check against work orders
-      const hasWorkOrderConflict = existingWorkOrders.some(wo => 
-        wo.scheduledStartDate && wo.scheduledEndDate &&
-        this.timesOverlap(
-          new Date(slot.startTime),
-          new Date(slot.endTime), 
-          new Date(wo.scheduledStartDate),
-          new Date(wo.scheduledEndDate)
-        )
+
+      // Compare with work orders with buffer padding
+      const hasWorkOrderConflict = existingWorkOrders.some(
+        (wo) =>
+          wo.scheduledStartDate &&
+          wo.scheduledEndDate &&
+          this.timesOverlap(
+            addMinutes(new Date(slot.startTime), -buffer),
+            addMinutes(new Date(slot.endTime), +buffer),
+            new Date(wo.scheduledStartDate),
+            new Date(wo.scheduledEndDate),
+          ),
       );
-      
+
       return !hasSlotConflict && !hasWorkOrderConflict;
     });
   }
 
-  private timesOverlap(start1: Date, end1: Date, start2: Date, end2: Date): boolean {
+  private timesOverlap(
+    start1: Date,
+    end1: Date,
+    start2: Date,
+    end2: Date,
+  ): boolean {
     return start1 < end2 && end1 > start2;
   }
 
   private getSlotDurationMinutes(duration: string): number {
     const durationMap: Record<string, number> = {
-      '1_hour': 60,
-      '2_hour': 120, 
-      '4_hour': 240,
-      '8_hour': 480,
-      'custom': 120 // Default to 2 hours for custom
+      "1_hour": 60,
+      "2_hour": 120,
+      "4_hour": 240,
+      "8_hour": 480,
+      custom: 120,
     };
     return durationMap[duration] || 120;
   }
 
   private getDurationFromMinutes(minutes: number): string {
-    if (minutes <= 60) return '1_hour';
-    if (minutes <= 120) return '2_hour';
-    if (minutes <= 240) return '4_hour';
-    if (minutes <= 480) return '8_hour';
-    return 'custom';
+    if (minutes <= 60) return "1_hour";
+    if (minutes <= 120) return "2_hour";
+    if (minutes <= 240) return "4_hour";
+    if (minutes <= 480) return "8_hour";
+    return "custom";
   }
 
-  private async checkBufferTimeConflicts(request: SlotBookingRequest): Promise<ConflictDetails[]> {
-    // ENHANCED: Check for 30-minute buffer before/after other appointments
-    const bufferMinutes = 30;
+  private async checkBufferTimeConflicts(
+    request: SlotBookingRequest,
+    bufferMinutes: number,
+  ): Promise<ConflictDetails[]> {
     const conflicts: ConflictDetails[] = [];
-    
-    // Get work orders within buffer time range
+
+    // Work orders within an hour around the request window
     const bufferStart = addHours(request.startTime, -1);
     const bufferEnd = addHours(request.endTime, 1);
-    
+
     const nearbyWorkOrders = await storage.getWorkOrdersByDateRange(
       request.contractorId,
       bufferStart,
-      bufferEnd
+      bufferEnd,
     );
-    
+
     for (const workOrder of nearbyWorkOrders) {
-      if (!workOrder.scheduledStartDate || !workOrder.scheduledEndDate || workOrder.id === request.workOrderId) {
+      if (
+        !workOrder.scheduledStartDate ||
+        !workOrder.scheduledEndDate ||
+        workOrder.id === request.workOrderId
+      ) {
         continue;
       }
-      
-      const timeBefore = Math.abs(
-        request.startTime.getTime() - new Date(workOrder.scheduledEndDate).getTime()
-      ) / 60000; // minutes
-      
-      const timeAfter = Math.abs(
-        new Date(workOrder.scheduledStartDate).getTime() - request.endTime.getTime()
-      ) / 60000; // minutes
-      
-      if (timeBefore < bufferMinutes || timeAfter < bufferMinutes) {
+
+      const minutesBefore = differenceInMinutes(
+        request.startTime,
+        new Date(workOrder.scheduledEndDate),
+      );
+      const minutesAfter = differenceInMinutes(
+        new Date(workOrder.scheduledStartDate),
+        request.endTime,
+      );
+
+      if (minutesBefore < bufferMinutes && minutesBefore > -1440) {
         conflicts.push({
           severity: "soft",
           conflictingSlots: [],
           conflictingWorkOrders: [workOrder],
-          description: `Less than ${bufferMinutes} minutes buffer time with work order ${workOrder.workOrderNumber}`,
-          canOverride: true
+          description: `Less than ${bufferMinutes} minutes turnover before this job.`,
+          canOverride: true,
+        });
+      } else if (minutesAfter < bufferMinutes && minutesAfter > -1440) {
+        conflicts.push({
+          severity: "soft",
+          conflictingSlots: [],
+          conflictingWorkOrders: [workOrder],
+          description: `Less than ${bufferMinutes} minutes turnover after this job.`,
+          canOverride: true,
         });
       }
     }
-    
+
     return conflicts;
   }
 
-  private async checkTravelTimeConflicts(request: SlotBookingRequest): Promise<ConflictDetails[]> {
-    // ENHANCED: Implement travel time calculation based on job locations
+  private async checkTravelTimeConflicts(
+    request: SlotBookingRequest,
+    travelMinutes: number,
+  ): Promise<ConflictDetails[]> {
     const conflicts: ConflictDetails[] = [];
-    const estimatedTravelMinutes = 15; // Default travel time estimate
-    
-    // Get work order details for location information
     const currentWorkOrder = await storage.getWorkOrder(request.workOrderId);
     if (!currentWorkOrder) return conflicts;
-    
-    // Get the service request for address information
-    const serviceRequest = await storage.getServiceRequest(currentWorkOrder.serviceRequestId);
+
+    const serviceRequest = await storage.getServiceRequest(
+      currentWorkOrder.serviceRequestId,
+    );
     if (!serviceRequest) return conflicts;
-    
-    // Get nearby work orders on the same day
+
     const dayStart = startOfDay(request.startTime);
     const dayEnd = endOfDay(request.startTime);
-    
+
     const samedayWorkOrders = await storage.getWorkOrdersByDateRange(
       request.contractorId,
       dayStart,
-      dayEnd
+      dayEnd,
     );
-    
+
     for (const workOrder of samedayWorkOrders) {
-      if (!workOrder.scheduledStartDate || !workOrder.scheduledEndDate || workOrder.id === request.workOrderId) {
+      if (
+        !workOrder.scheduledStartDate ||
+        !workOrder.scheduledEndDate ||
+        workOrder.id === request.workOrderId
+      ) {
         continue;
       }
-      
-      // Get related service request for location comparison
-      const otherServiceRequest = await storage.getServiceRequest(workOrder.serviceRequestId);
-      if (!otherServiceRequest) continue;
-      
-      // Simple distance check - if different addresses, assume travel time needed
-      const differentLocation = serviceRequest.address !== otherServiceRequest.address ||
-                              serviceRequest.city !== otherServiceRequest.city;
-      
+
+      const otherSR = await storage.getServiceRequest(
+        workOrder.serviceRequestId,
+      );
+      if (!otherSR) continue;
+
+      const differentLocation =
+        serviceRequest.address !== otherSR.address ||
+        serviceRequest.city !== otherSR.city ||
+        serviceRequest.zip !== otherSR.zip;
+
       if (differentLocation) {
-        const timeBetween = Math.abs(
-          request.startTime.getTime() - new Date(workOrder.scheduledEndDate).getTime()
-        ) / 60000; // minutes
-        
-        if (timeBetween < estimatedTravelMinutes) {
+        // naive: require at least travelMinutes between previous end and next start
+        const minutesBetween = Math.abs(
+          differenceInMinutes(
+            request.startTime,
+            new Date(workOrder.scheduledEndDate),
+          ),
+        );
+        if (minutesBetween < travelMinutes) {
           conflicts.push({
             severity: "travel",
             conflictingSlots: [],
             conflictingWorkOrders: [workOrder],
-            description: `Insufficient travel time (${Math.round(timeBetween)} min) between locations: ${serviceRequest.address} and ${otherServiceRequest.address}`,
-            canOverride: true
+            description: `Insufficient travel time (${minutesBetween} min) between ${serviceRequest.address} and ${otherSR.address}.`,
+            canOverride: true,
           });
         }
       }
     }
-    
+
     return conflicts;
   }
 
   /**
    * Find existing slot to avoid duplicates during slot generation
    */
-  private async findExistingSlot(contractorId: string, startTime: Date, endTime: Date): Promise<TimeSlot | undefined> {
-    const overlappingSlots = await storage.getOverlappingTimeSlots(contractorId, startTime, endTime);
-    return overlappingSlots.find(slot => 
-      isEqual(new Date(slot.startTime), startTime) && 
-      isEqual(new Date(slot.endTime), endTime)
+  private async findExistingSlot(
+    contractorId: string,
+    startTime: Date,
+    endTime: Date,
+  ): Promise<TimeSlot | undefined> {
+    const overlappingSlots = await storage.getOverlappingTimeSlots(
+      contractorId,
+      addMinutes(startTime, -1),
+      addMinutes(endTime, +1),
+    );
+    return overlappingSlots.find(
+      (slot) =>
+        isEqual(new Date(slot.startTime), startTime) &&
+        isEqual(new Date(slot.endTime), endTime),
     );
   }
 
-  private async logSchedulingConflicts(request: SlotBookingRequest, conflicts: ConflictDetails[]) {
+  private async logSchedulingConflicts(
+    request: SlotBookingRequest,
+    conflicts: ConflictDetails[],
+  ) {
     for (const conflict of conflicts) {
       const conflictData: InsertScheduleConflict = {
         conflictType: conflict.severity,
@@ -622,55 +863,54 @@ export class SchedulingService {
         contractorId: request.contractorId,
         conflictStart: request.startTime,
         conflictEnd: request.endTime,
-        conflictingWorkOrderIds: conflict.conflictingWorkOrders.map(wo => wo.id),
-        conflictingSlotIds: conflict.conflictingSlots.map(slot => slot.id),
-        detectionMethod: 'booking_validation',
+        conflictingWorkOrderIds: conflict.conflictingWorkOrders.map(
+          (wo) => wo.id,
+        ),
+        conflictingSlotIds: conflict.conflictingSlots.map((slot) => slot.id),
+        detectionMethod: "booking_validation",
         conflictDescription: conflict.description,
         adminOverride: request.adminOverride || false,
         resolvedBy: request.overrideBy,
-        resolutionNotes: request.overrideReason
+        resolutionNotes: request.overrideReason,
       };
-      
+
       await storage.createScheduleConflict(conflictData);
     }
   }
 
   /**
    * Handle admin override for scheduling conflicts
-   * IMPLEMENTED: Processes admin overrides with proper audit logging
    */
   async handleAdminOverride(request: AdminSlotOverrideRequest): Promise<void> {
-    // Log the admin override action
     await storage.createScheduleAuditLog({
-      action: 'admin_override',
-      entityType: 'work_order',
+      action: "admin_override",
+      entityType: "work_order",
       entityId: request.workOrderId,
       userId: request.adminUserId,
-      userRole: 'admin',
+      userRole: "admin",
       reason: request.overrideReason,
       adminOverride: true,
       newValues: {
         contractorId: request.contractorId,
         startTime: request.startTime.toISOString(),
         endTime: request.endTime.toISOString(),
-        overrideReason: request.overrideReason
+        overrideReason: request.overrideReason,
       },
       additionalData: {
-        overrideType: 'scheduling_conflict',
-        overrideTimestamp: new Date().toISOString()
-      }
+        overrideType: "scheduling_conflict",
+        overrideTimestamp: new Date().toISOString(),
+      },
     });
 
-    // Force book the slot despite conflicts
     const bookingRequest: SlotBookingRequest = {
       contractorId: request.contractorId,
       startTime: request.startTime,
       endTime: request.endTime,
-      slotType: 'standard',
+      slotType: "standard",
       workOrderId: request.workOrderId,
       adminOverride: true,
       overrideReason: request.overrideReason,
-      overrideBy: request.adminUserId
+      overrideBy: request.adminUserId,
     };
 
     await this.bookSlot(bookingRequest);
@@ -678,19 +918,143 @@ export class SchedulingService {
 
   private async auditOverrideAction(request: SlotBookingRequest) {
     await storage.createScheduleAuditLog({
-      action: 'admin_override',
-      entityType: 'work_order',
+      action: "admin_override",
+      entityType: "work_order",
       entityId: request.workOrderId,
       userId: request.overrideBy,
-      userRole: 'admin',
-      reason: request.overrideReason || 'Admin scheduling override',
+      userRole: "admin",
+      reason: request.overrideReason || "Admin scheduling override",
       adminOverride: true,
       additionalData: {
         originalStartTime: request.startTime.toISOString(),
         originalEndTime: request.endTime.toISOString(),
-        contractorId: request.contractorId
-      }
+        contractorId: request.contractorId,
+      },
     });
+  }
+
+  // ===========================
+  // MANAGER SETTINGS / BLOCKS / CAPACITY
+  // ===========================
+
+  private async resolveManagerIdForContractor(
+    contractor?: ContractorProfile | null,
+  ): Promise<string> {
+    if (contractor?.homeManagerId) return String(contractor.homeManagerId);
+    if ((storage as any).getHomeManagerForContractor) {
+      const mgr = await (storage as any).getHomeManagerForContractor(
+        contractor?.id,
+      );
+      if (mgr?.id) return String(mgr.id);
+    }
+    // fallback to contractor as manager
+    return String(contractor?.id || "");
+  }
+
+  private async getManagerSettings(
+    homeManagerId: string,
+  ): Promise<ManagerSettings> {
+    // Try storage-backed settings
+    if ((storage as any).getManagerSettings) {
+      const s = await (storage as any).getManagerSettings(homeManagerId);
+      if (s) {
+        return {
+          homeManagerId: String(homeManagerId),
+          maxDailyJobs: Number(s.maxDailyJobs ?? 8),
+          serviceWindowStart: String(s.serviceWindowStart ?? "08:00"),
+          serviceWindowEnd: String(s.serviceWindowEnd ?? "18:00"),
+          bufferMinutes: Number(
+            s.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES,
+          ),
+        };
+      }
+    }
+    // Defaults
+    return {
+      homeManagerId: String(homeManagerId),
+      maxDailyJobs: 8,
+      serviceWindowStart: "08:00",
+      serviceWindowEnd: "18:00",
+      bufferMinutes: this.TURNOVER_BUFFER_MINUTES,
+    };
+  }
+
+  private async getManagerTimeBlocks(
+    homeManagerId: string,
+    start: Date,
+    end: Date,
+  ): Promise<ManagerTimeBlock[]> {
+    if ((storage as any).getManagerTimeBlocks) {
+      return await (storage as any).getManagerTimeBlocks(
+        homeManagerId,
+        start,
+        end,
+      );
+    }
+    return [];
+  }
+
+  private composeDateTime(date: Date, hhmm: string): Date {
+    const [h, m] = hhmm.split(":").map(Number);
+    const d = new Date(date);
+    d.setHours(h, m, 0, 0);
+    return d;
+  }
+
+  private async isOutsideServiceWindow(
+    homeManagerId: string,
+    start: Date,
+    end: Date,
+    mgr: ManagerSettings,
+  ): Promise<boolean> {
+    const s = this.composeDateTime(start, mgr.serviceWindowStart);
+    const e = this.composeDateTime(start, mgr.serviceWindowEnd);
+    return start < s || end > e;
+  }
+
+  private async isInManagerBlock(
+    homeManagerId: string,
+    start: Date,
+    end: Date,
+  ): Promise<boolean> {
+    const blocks = await this.getManagerTimeBlocks(
+      homeManagerId,
+      startOfDay(start),
+      endOfDay(start),
+    );
+    return blocks.some((b) =>
+      this.timesOverlap(start, end, b.startAt, b.endAt),
+    );
+  }
+
+  private async isDailyCapacityReached(
+    homeManagerId: string,
+    day: Date,
+    mgr: ManagerSettings,
+  ): Promise<boolean> {
+    // Prefer a fast count method if provided
+    if ((storage as any).countWorkOrdersForManagerOnDay) {
+      const count = await (storage as any).countWorkOrdersForManagerOnDay(
+        homeManagerId,
+        startOfDay(day),
+      );
+      return Number(count) >= (mgr.maxDailyJobs ?? 8);
+    }
+
+    // Fallback: pull a day range and count
+    const dayStart = startOfDay(day);
+    const dayEnd = endOfDay(day);
+    if ((storage as any).getWorkOrdersForManagerByDateRange) {
+      const list = await (storage as any).getWorkOrdersForManagerByDateRange(
+        homeManagerId,
+        dayStart,
+        dayEnd,
+      );
+      return (list?.length || 0) >= (mgr.maxDailyJobs ?? 8);
+    }
+
+    // Absolute fallback: cannot verify, assume not reached
+    return false;
   }
 }
 

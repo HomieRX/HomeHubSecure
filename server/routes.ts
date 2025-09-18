@@ -341,6 +341,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // DEV ONLY - Role Switch Endpoint (PROTECTED)
+  app.post("/api/dev/switch-role", isAuthenticated, async (req: any, res) => {
+    try {
+      // Only allow in development mode
+      if (process.env.NODE_ENV !== 'development') {
+        return res.status(403).json({ error: "This endpoint is only available in development mode" });
+      }
+
+      const userId = req.user.claims.sub;
+      const { role } = req.body;
+
+      // Validate role
+      const validRoles = ['homeowner', 'contractor', 'merchant', 'admin'];
+      if (!role || !validRoles.includes(role)) {
+        return res.status(400).json({ 
+          error: "Invalid role", 
+          validRoles 
+        });
+      }
+
+      // Get current user
+      const currentUser = await (await getStorage()).getUser(userId);
+      if (!currentUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Update user role
+      const updatedUser = await (await getStorage()).updateUser(userId, { role });
+      if (!updatedUser) {
+        return res.status(500).json({ error: "Failed to update user role" });
+      }
+
+      res.json({ 
+        message: `Role switched to ${role}`,
+        user: updatedUser
+      });
+    } catch (error) {
+      console.error("Error switching role:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Notification Settings Routes (PROTECTED)
   app.get("/api/notification-settings", isAuthenticated, async (req: any, res) => {
     try {
