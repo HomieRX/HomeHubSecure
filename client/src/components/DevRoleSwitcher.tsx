@@ -43,11 +43,8 @@ export function DevRoleSwitcher() {
   // Role switch mutation
   const switchRoleMutation = useMutation({
     mutationFn: async (role: string) => {
-      const response = await apiRequest('/api/dev/switch-role', {
-        method: 'POST',
-        body: { role }
-      });
-      return response;
+      const response = await apiRequest('POST', '/api/dev/switch-role', { role });
+      return response.json();
     },
     onSuccess: (data) => {
       // Invalidate user data to refresh it
