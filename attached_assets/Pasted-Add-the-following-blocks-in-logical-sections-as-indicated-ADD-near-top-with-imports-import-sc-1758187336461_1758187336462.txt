@@ -1,0 +1,215 @@
+Add the following blocks in logical sections as indicated.
+
+// ADD near top with imports
+import { scheduleOrThrow } from './schedulingService';
+import { generateInvoicePdfAndUpload } from './pdf/invoice';
+import { managerSettings, managerTimeBlocks, workOrders, invoices, members } from '../shared/schema';
+import { and, eq, sql } from 'drizzle-orm';
+
+// =============================
+// SCHEDULING: confirm/reschedule/cancel
+// =============================
+
+// Confirm a tentative appointment into a scheduled work order (enforces blackout, capacity, and DB-level no-overlap)
+app.post('/api/appointments/:id/confirm', isAuthenticated, requireRole(['admin','manager']), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const { homeManagerId, start, end } = req.body as { homeManagerId: number; start: string; end: string };
+    await scheduleOrThrow({ workOrderId: id, homeManagerId, start: new Date(start), end: new Date(end) });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// Reschedule with 48h policy
+app.post('/api/appointments/:id/reschedule', isAuthenticated, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const { start, end } = req.body as { start: string; end: string };
+
+    const [wo] = await db.select().from(workOrders).where(eq(workOrders.id, id)).limit(1);
+    if (!wo) return res.status(404).json({ error: 'Not found' });
+
+    const hrsUntil = (wo.scheduledStartDate!.getTime() - Date.now()) / 36e5;
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
+
+    if (hrsUntil < 48 && !isPrivileged) {
+      return res.status(403).json({ error: 'Reschedule requires approval inside 48 hours' });
+    }
+
+    await scheduleOrThrow({
+      workOrderId: id,
+      homeManagerId: wo.homeManagerId!,
+      start: new Date(start),
+      end: new Date(end)
+    });
+
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// Cancel with 48h policy
+app.post('/api/appointments/:id/cancel', isAuthenticated, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const [wo] = await db.select().from(workOrders).where(eq(workOrders.id, id)).limit(1);
+    if (!wo) return res.status(404).json({ error: 'Not found' });
+
+    const hrsUntil = (wo.scheduledStartDate!.getTime() - Date.now()) / 36e5;
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
+    if (hrsUntil < 48 && !isPrivileged) {
+      return res.status(403).json({ error: 'Cancel requires approval inside 48 hours' });
+    }
+
+    await db.update(workOrders).set({ status: 'cancelled' }).where(eq(workOrders.id, id));
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// =============================
+// OPS: technician/manager views
+// =============================
+
+// Manager: today's schedule + capacity snapshot
+app.get('/api/ops/manager/today', isAuthenticated, requireRole(['manager','admin']), async (req, res, next) => {
+  try {
+    const managerId = req.user.role === 'manager' ? req.user.id : Number(req.query.managerId);
+    const start = new Date(); start.setUTCHours(0,0,0,0);
+    const end = new Date();   end.setUTCHours(23,59,59,999);
+
+    const jobs = await db.select().from(workOrders)
+      .where(and(
+        eq(workOrders.homeManagerId, managerId),
+        workOrders.scheduledStartDate.gte(start),
+        workOrders.scheduledStartDate.lte(end),
+        workOrders.status.in(['scheduled','in_progress'])
+      ))
+      .orderBy(workOrders.scheduledStartDate);
+
+    const [settings] = await db.select().from(managerSettings).where(eq(managerSettings.homeManagerId, managerId));
+
+    res.json({
+      date: start.toISOString().slice(0,10),
+      capacity: { used: jobs.length, max: settings?.maxDailyJobs ?? 8 },
+      jobs
+    });
+  } catch (err) { next(err); }
+});
+
+// Technician: my jobs today (assuming technician is also the homeManager or linked)
+app.get('/api/ops/tech/today', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
+  try {
+    const techId = req.user.id;
+    const start = new Date(); start.setUTCHours(0,0,0,0);
+    const end = new Date();   end.setUTCHours(23,59,59,999);
+
+    const jobs = await db.select().from(workOrders)
+      .where(and(
+        eq(workOrders.assignedTechnicianId, techId),
+        workOrders.scheduledStartDate.gte(start),
+        workOrders.scheduledStartDate.lte(end),
+        workOrders.status.in(['scheduled','in_progress'])
+      ))
+      .orderBy(workOrders.scheduledStartDate);
+
+    res.json({ date: start.toISOString().slice(0,10), jobs });
+  } catch (err) { next(err); }
+});
+
+// =============================
+// Check-in / Check-out / Complete with proof-of-service
+// =============================
+
+app.post('/api/work-orders/:id/check-in', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const { lat, lng } = req.body as { lat?: number; lng?: number };
+    await db.update(workOrders)
+      .set({ checkInAt: new Date(), checkInLat: lat, checkInLng: lng, status: 'in_progress' })
+      .where(eq(workOrders.id, id));
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/work-orders/:id/check-out', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const { notes, beforePhotos, afterPhotos, extraChargesCents, lineItems, memberSignatureUrl } = req.body as any;
+    await db.update(workOrders)
+      .set({
+        checkOutAt: new Date(),
+        technicianNotes: notes,
+        beforePhotos,
+        afterPhotos,
+        extraChargesCents: extraChargesCents ?? 0,
+        lineItems,
+        memberSignatureUrl
+      })
+      .where(eq(workOrders.id, id));
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// Complete and auto-generate invoice (+ PDF)
+app.post('/api/work-orders/:id/complete', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+
+    // mark complete
+    await db.update(workOrders).set({ status: 'complete' }).where(eq(workOrders.id, id));
+
+    // create invoice if missing
+    let [inv] = await db.select().from(invoices).where(eq(invoices.workOrderId, id)).limit(1);
+    if (!inv) {
+      const inserted = await db.insert(invoices).values({
+        workOrderId: id,
+        memberId: req.body.memberId, // or derive from work order
+        status: 'sent',
+        totalCents: 0 // recompute below if you store line items elsewhere
+      }).returning();
+      inv = inserted[0];
+    }
+
+    // Build PDF + upload
+    const { invoiceNumber, url } = await generateInvoicePdfAndUpload(inv.id);
+    await db.update(invoices).set({ pdfUrl: url }).where(eq(invoices.id, inv.id));
+
+    res.json({ ok: true, invoiceId: inv.id, invoiceNumber, pdfUrl: url });
+  } catch (err) { next(err); }
+});
+
+// =============================
+// Manager settings & blocks (simple admin endpoints)
+// =============================
+
+app.post('/api/admin/manager-settings', isAuthenticated, requireRole(['admin']), async (req, res, next) => {
+  try {
+    const { homeManagerId, maxDailyJobs, serviceWindowStart, serviceWindowEnd, bufferMinutes } = req.body;
+    const upsert = await db.execute(sql`
+      INSERT INTO manager_settings (home_manager_id, max_daily_jobs, service_window_start, service_window_end, buffer_minutes)
+      VALUES (${homeManagerId}, ${maxDailyJobs}, ${serviceWindowStart}, ${serviceWindowEnd}, ${bufferMinutes})
+      ON CONFLICT (home_manager_id)
+      DO UPDATE SET max_daily_jobs = EXCLUDED.max_daily_jobs,
+                    service_window_start = EXCLUDED.service_window_start,
+                    service_window_end = EXCLUDED.service_window_end,
+                    buffer_minutes = EXCLUDED.buffer_minutes,
+                    updated_at = NOW()
+      RETURNING *;
+    `);
+    res.json(upsert.rows[0]);
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/manager-blocks', isAuthenticated, requireRole(['admin','manager']), async (req, res, next) => {
+  try {
+    const { homeManagerId, blockType, startAt, endAt, reason } = req.body;
+    const inserted = await db.insert(managerTimeBlocks).values({
+      homeManagerId,
+      blockType,
+      startAt: new Date(startAt),
+      endAt: new Date(endAt),
+      reason,
+      createdBy: req.user.id
+    }).returning();
+    res.json(inserted[0]);
+  } catch (err) { next(err); }
+});
