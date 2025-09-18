@@ -223,14 +223,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      console.log(`[DEBUG] Looking for user ID: "${userId}" (type: ${typeof userId})`);
       let user = await (await getStorage()).getUser(userId);
+      console.log(`[DEBUG] Initial getUser result: ${user ? 'found' : 'not found'}`);
       
       // If user doesn't exist, create them from the authenticated claims
       if (!user) {
         console.log(`Creating new user from auth claims: ${userId}`);
         const claims = req.user.claims;
+        console.log(`[DEBUG] Claims sub: "${claims.sub}" (type: ${typeof claims.sub})`);
         await upsertUser(claims);
         user = await (await getStorage()).getUser(userId);
+        console.log(`[DEBUG] After upsertUser, getUser result: ${user ? 'found' : 'not found'}`);
+        
+        // Double-check: try converting userId to string
+        if (!user && typeof userId === 'number') {
+          const userIdStr = String(userId);
+          console.log(`[DEBUG] Trying string conversion: "${userIdStr}"`);
+          user = await (await getStorage()).getUser(userIdStr);
+          console.log(`[DEBUG] String conversion result: ${user ? 'found' : 'not found'}`);
+        }
       }
       
       if (!user) {

@@ -420,6 +420,7 @@ export class MemStorage implements IStorage {
 
   // Required for Replit Auth - creates or updates user based on auth claims
   async upsertUser(userData: UpsertUser): Promise<User> {
+    console.log(`[STORAGE] upsertUser called with ID: "${userData.id}" (type: ${typeof userData.id})`);
     const now = new Date();
     
     // Ensure we have a valid user ID
@@ -429,6 +430,7 @@ export class MemStorage implements IStorage {
     
     // Check if user already exists
     const existingUser = this.users.get(userData.id);
+    console.log(`[STORAGE] Existing user check for "${userData.id}": ${existingUser ? 'found' : 'not found'}`);
     
     if (existingUser) {
       // Update existing user with new auth data, preserving existing role
@@ -463,6 +465,8 @@ export class MemStorage implements IStorage {
         updatedAt: now
       };
       this.users.set(userData.id, newUser);
+      console.log(`[STORAGE] New user created and stored. Map size now: ${this.users.size}`);
+      console.log(`[STORAGE] Verifying storage: user ${userData.id} exists = ${this.users.has(userData.id)}`);
       return newUser;
     }
   }
