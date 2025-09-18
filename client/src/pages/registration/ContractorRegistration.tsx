@@ -88,16 +88,12 @@ export default function ContractorRegistration() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
-  // Check if user is logged in
-  const { data: currentUser } = useQuery({
-    queryKey: ['/api/auth/user'],
-    retry: false
-  });
+  // Note: No authentication check needed - registration creates the user account
 
   const form = useForm<ContractorRegistrationForm>({
     resolver: zodResolver(ContractorRegistrationSchema),
     defaultValues: {
-      userId: currentUser?.id || "",
+      userId: "",
       businessName: "",
       firstName: "",
       lastName: "",
@@ -217,22 +213,6 @@ export default function ContractorRegistration() {
     }
   };
 
-  if (!currentUser) {
-    return (
-      <RegistrationLayout
-        title="Contractor Registration"
-        subtitle="Please sign in to continue with your contractor registration"
-        showBackButton={false}
-      >
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            You need to be signed in to register as a contractor. Please sign in and try again.
-          </AlertDescription>
-        </Alert>
-      </RegistrationLayout>
-    );
-  }
 
   return (
     <RegistrationLayout
