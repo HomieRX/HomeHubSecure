@@ -30,6 +30,7 @@ import {
   FileText
 } from 'lucide-react';
 import { Link } from 'wouter';
+import { DevRoleSwitcher } from './DevRoleSwitcher';
 
 interface Notification {
   id: string;
@@ -312,6 +313,9 @@ export function PlatformHeader() {
             </div>
           </PopoverContent>
         </Popover>
+
+        {/* Dev-only Role Switcher */}
+        <DevRoleSwitcher />
 
         {/* User Avatar Dropdown */}
         <DropdownMenu>
