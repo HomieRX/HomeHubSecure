@@ -1,7 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useParams } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import type { AuthUserResponse } from '@shared/types';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import {
   Dialog,
@@ -140,13 +140,13 @@ interface ForumPost {
 }
 
 // Create Post Schema
-const createPostSchema = {
+const createPostDefaults = {
   content: '',
   postType: 'reply' as const,
   parentPostId: undefined as string | undefined
 };
 
-type CreatePostData = typeof createPostSchema;
+type CreatePostData = typeof createPostDefaults;
 
 const topicStatusConfig = {
   active: { icon: MessageCircle, label: 'Active', color: 'text-blue-600' },
@@ -174,8 +174,7 @@ export default function ForumTopic() {
   
   // Create Post Form
   const postForm = useForm<CreatePostData>({
-    resolver: zodResolver,
-    defaultValues: createPostSchema
+    defaultValues: createPostDefaults
   });
 
   const { toast } = useToast();
@@ -223,7 +222,7 @@ export default function ForumTopic() {
   });
 
   // Get current user for permissions
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<AuthUserResponse>({
     queryKey: ['/api/auth/user']
   });
 
@@ -811,7 +810,7 @@ export default function ForumTopic() {
                           {forum?.forumType === 'qa' && 
                            post.postType === 'answer' && 
                            !post.isAcceptedAnswer && 
-                           currentUser?.id === topic.authorId && (
+                           currentUser?.user?.id === topic.authorId && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -947,7 +946,7 @@ export default function ForumTopic() {
                               {/* Accept Answer Button (for Q&A replies) */}
                               {forum?.forumType === 'qa' && 
                                !reply.isAcceptedAnswer && 
-                               currentUser?.id === topic.authorId && (
+                               currentUser?.user?.id === topic.authorId && (
                                 <Button
                                   variant="outline"
                                   size="sm"

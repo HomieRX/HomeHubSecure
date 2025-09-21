@@ -152,6 +152,9 @@ importers:
       date-fns:
         specifier: ^3.6.0
         version: 3.6.0
+      date-fns-tz:
+        specifier: ^2.0.1
+        version: 2.0.1(date-fns@3.6.0)
       drizzle-orm:
         specifier: ^0.39.1
         version: 0.39.3(@neondatabase/serverless@0.10.4)(@types/pg@8.15.5)(pg@8.16.3)
@@ -2577,6 +2580,11 @@ packages:
   data-uri-to-buffer@4.0.1:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
     engines: {node: '>= 12'}
+
+  date-fns-tz@2.0.1:
+    resolution: {integrity: sha512-fJCG3Pwx8HUoLhkepdsP7Z5RsucUi+ZBOxyM5d0ZZ6c4SdYustq0VMmOu6Wf7bli+yS/Jwp91TOCqn9jMcVrUA==}
+    peerDependencies:
+      date-fns: 2.x
 
   date-fns@3.6.0:
     resolution: {integrity: sha512-fRHTG8g/Gif+kSh50gaGEdToemgfj74aRX3swtiouboip5JDLAyDE9F11nHMIcvOaXeOC6D7SpNhi7uFyB7Uww==}
@@ -6374,6 +6382,10 @@ snapshots:
       type: 2.7.3
 
   data-uri-to-buffer@4.0.1: {}
+
+  date-fns-tz@2.0.1(date-fns@3.6.0):
+    dependencies:
+      date-fns: 3.6.0
 
   date-fns@3.6.0: {}
 

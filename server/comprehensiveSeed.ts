@@ -1,5 +1,5 @@
 import { 
-  type InsertUser,
+  type UpsertUser,
   type InsertContractorProfile,
   type InsertMerchantProfile,
   type InsertDeal,
@@ -8,7 +8,7 @@ import {
 import type { IStorage } from "./storage";
 
 // Sample user data for contractors
-export const contractorUsersData: InsertUser[] = [
+export const contractorUsersData: UpsertUser[] = [
   {
     id: "contractor-1",
     email: "mike.handyman@homehub.com",
@@ -440,7 +440,7 @@ export const contractorProfilesData: InsertContractorProfile[] = [
 ];
 
 // Sample user data for merchants
-export const merchantUsersData: InsertUser[] = [
+export const merchantUsersData: UpsertUser[] = [
   {
     id: "merchant-1",
     email: "info@texashardware.com",

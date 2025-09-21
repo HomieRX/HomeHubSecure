@@ -366,7 +366,7 @@ export default function ForumList() {
       </div>
 
       {/* Create Forum Button - Only for admins */}
-      {currentUser?.role === 'admin' && (
+      {currentUser?.user?.role === 'admin' && (
         <div className="flex justify-center">
           <Dialog open={isCreateForumOpen} onOpenChange={setIsCreateForumOpen}>
             <DialogTrigger asChild>

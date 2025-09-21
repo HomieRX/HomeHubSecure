@@ -57,13 +57,13 @@ export default function ServiceRequests() {
   const { toast } = useToast();
 
   // Fetch authenticated user
-  const { data: currentUser, isLoading: loadingAuth, error: authError } = useQuery({
+  const { data: currentUser, isLoading: loadingAuth, error: authError } = useQuery<AuthUserResponse>({
     queryKey: ["/api/auth/user"],
     retry: false,
     staleTime: 5 * 60 * 1000,
   });
 
-  const authUser = (currentUser as AuthUserResponse | undefined)?.user ?? currentUser;
+  const authUser = currentUser?.user;
 
   // Fetch member profile for authenticated user
   const { data: memberProfile, isLoading: loadingMemberProfile } = useQuery<MemberProfile>({
