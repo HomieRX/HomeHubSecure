@@ -1,0 +1,324 @@
+SECTION_SUMMARY
+[User management (IMPORTANT: Required methods for Replit Auth)] total=8 missing_mem=0 missing_db=0
+[Member profiles] total=7 missing_mem=0 missing_db=0
+[Sanitized public access methods (PII-safe)] total=3 missing_mem=0 missing_db=0
+[Contractor profiles] total=8 missing_mem=0 missing_db=0
+[Merchant profiles] total=7 missing_mem=0 missing_db=0
+[Home details] total=4 missing_mem=0 missing_db=0
+[Service requests] total=8 missing_mem=0 missing_db=0
+[Work orders] total=10 missing_mem=0 missing_db=0
+[Estimates] total=9 missing_mem=0 missing_db=0
+[Invoices] total=8 missing_mem=0 missing_db=0
+[Loyalty points] total=4 missing_mem=0 missing_db=0
+[Deals] total=8 missing_mem=0 missing_db=0
+[Messages] total=7 missing_mem=0 missing_db=0
+[Notifications] total=5 missing_mem=0 missing_db=0
+[Notification Settings] total=3 missing_mem=0 missing_db=0
+[Calendar events] total=6 missing_mem=0 missing_db=0
+[Community] total=6 missing_mem=0 missing_db=0
+[Forums] total=7 missing_mem=7 missing_db=0
+  missing_mem_list=getForum, getForums, getForumsByGroup, getPublicForums, createForum, updateForum, deleteForum
+[Forum Topics] total=13 missing_mem=13 missing_db=0
+  missing_mem_list=getForumTopic, getForumTopicBySlug, getForumTopics, getTopicsByAuthor, getRecentTopics, getTrendingTopics, createForumTopic, updateForumTopic, pinTopic, lockTopic, solveTopic, incrementTopicViews, deleteForumTopic
+[Forum Posts] total=11 missing_mem=11 missing_db=0
+  missing_mem_list=getForumPost, getForumPosts, getPostsByAuthor, getTopLevelPosts, getPostReplies, getPostThread, createForumPost, updateForumPost, markPostAsAnswer, unmarkPostAsAnswer, deleteForumPost
+[Forum Post Voting] total=6 missing_mem=6 missing_db=0
+  missing_mem_list=getPostVote, getPostVotes, createPostVote, updatePostVote, removePostVote, getPostScore
+[Forum Statistics and Analytics] total=3 missing_mem=3 missing_db=0
+  missing_mem_list=getForumStats, getTopicStats, getUserForumActivity
+[Forum Moderation] total=3 missing_mem=3 missing_db=0
+  missing_mem_list=moderatePost, flagPost, getFlaggedPosts
+[Gamification - Badges] total=5 missing_mem=0 missing_db=0
+[Gamification - Ranks] total=5 missing_mem=0 missing_db=0
+[Gamification - Achievements] total=5 missing_mem=0 missing_db=0
+[Maintenance Items] total=5 missing_mem=0 missing_db=0
+[===========================] total=0 missing_mem=0 missing_db=0
+[SCHEDULING SYSTEM METHODS] total=0 missing_mem=0 missing_db=0
+[Time slot management] total=6 missing_mem=6 missing_db=0
+  missing_mem_list=getTimeSlot, getContractorTimeSlots, getOverlappingTimeSlots, createTimeSlot, updateTimeSlot, deleteTimeSlot
+[Work order scheduling queries] total=2 missing_mem=2 missing_db=0
+  missing_mem_list=getOverlappingWorkOrders, getWorkOrdersByDateRange
+[Schedule conflict management] total=6 missing_mem=6 missing_db=0
+  missing_mem_list=getScheduleConflict, getScheduleConflictsByWorkOrder, getScheduleConflictsByContractor, createScheduleConflict, updateScheduleConflict, resolveScheduleConflict
+[Schedule audit logging] total=4 missing_mem=4 missing_db=0
+  missing_mem_list=getScheduleAuditLog, getScheduleAuditLogsByEntity, getScheduleAuditLogsByUser, createScheduleAuditLog
+[Forum methods (in-memory implementation)] total=0 missing_mem=0 missing_db=0
+[Scheduling methods (in-memory implementation)] total=0 missing_mem=0 missing_db=0
+[Data seeding and initialization] total=1 missing_mem=0 missing_db=0
+[User management methods] total=0 missing_mem=0 missing_db=0
+[Legacy fields (null - no longer accepted via API)] total=0 missing_mem=0 missing_db=0
+[New Replit Auth fields] total=0 missing_mem=0 missing_db=0
+[Business fields] total=0 missing_mem=0 missing_db=0
+[Required for Replit Auth - creates or updates user based on auth claims] total=0 missing_mem=0 missing_db=0
+[Ensure we have a valid user ID] total=0 missing_mem=0 missing_db=0
+[Check if user already exists] total=0 missing_mem=0 missing_db=0
+[Update existing user with new auth data, preserving existing role] total=0 missing_mem=0 missing_db=0
+[Preserve role if set, or apply from userData if provided] total=0 missing_mem=0 missing_db=0
+[Create new user from auth claims] total=0 missing_mem=0 missing_db=0
+[Legacy fields (null for new Replit Auth users)] total=0 missing_mem=0 missing_db=0
+[Business fields (defaults for new users, or from userData if admin bootstrap)] total=0 missing_mem=0 missing_db=0
+[Member profile methods] total=0 missing_mem=0 missing_db=0
+[Contractor profile methods] total=0 missing_mem=0 missing_db=0
+[Merchant profile methods] total=0 missing_mem=0 missing_db=0
+[Home details methods] total=0 missing_mem=0 missing_db=0
+[Service request methods] total=0 missing_mem=0 missing_db=0
+[Service Type and Category] total=0 missing_mem=0 missing_db=0
+[Basic Request Info] total=0 missing_mem=0 missing_db=0
+[Location and Timing] total=0 missing_mem=0 missing_db=0
+[Scheduling and Seasonal Controls (for PreventiT!)] total=0 missing_mem=0 missing_db=0
+[Workflow and Assignment] total=0 missing_mem=0 missing_db=0
+[Time Tracking] total=0 missing_mem=0 missing_db=0
+[Payment and Pricing (enhanced for HandleiT! escrow)] total=0 missing_mem=0 missing_db=0
+[Loyalty and Rewards (for LoyalizeiT!)] total=0 missing_mem=0 missing_db=0
+[Documentation] total=0 missing_mem=0 missing_db=0
+[Metadata] total=0 missing_mem=0 missing_db=0
+[Work order methods] total=0 missing_mem=0 missing_db=0
+[Estimate methods] total=0 missing_mem=0 missing_db=0
+[Invoice methods] total=0 missing_mem=0 missing_db=0
+[Loyalty point methods] total=0 missing_mem=0 missing_db=0
+[Deal methods] total=0 missing_mem=0 missing_db=0
+[Message methods] total=0 missing_mem=0 missing_db=0
+[Notification methods] total=0 missing_mem=0 missing_db=0
+[Mentions] total=0 missing_mem=0 missing_db=0
+[Posts & Comments] total=0 missing_mem=0 missing_db=0
+[Account Settings] total=0 missing_mem=0 missing_db=0
+[Activity Feeds] total=0 missing_mem=0 missing_db=0
+[Social Groups] total=0 missing_mem=0 missing_db=0
+[Discussion Forums] total=0 missing_mem=0 missing_db=0
+[Private Messages] total=0 missing_mem=0 missing_db=0
+[Member Connections] total=0 missing_mem=0 missing_db=0
+[Calendar event methods] total=0 missing_mem=0 missing_db=0
+[Community methods] total=0 missing_mem=0 missing_db=0
+[Gamification - Badges methods] total=0 missing_mem=0 missing_db=0
+[Gamification - Ranks methods] total=0 missing_mem=0 missing_db=0
+[Gamification - Achievements methods] total=0 missing_mem=0 missing_db=0
+[Maintenance Items methods] total=0 missing_mem=0 missing_db=0
+[Storage factory for switching between implementations] total=0 missing_mem=0 missing_db=0
+[Export storage instance - initialized asynchronously] total=0 missing_mem=0 missing_db=0
+
+DETAILED_METHODS
+## User management (IMPORTANT: Required methods for Replit Auth)
+- getUser: inMem=Y, inDb=Y
+- getAllUsers: inMem=Y, inDb=Y
+- upsertUser: inMem=Y, inDb=Y
+- getUserByUsername: inMem=Y, inDb=Y
+- getUserByEmail: inMem=Y, inDb=Y
+- createUser: inMem=Y, inDb=Y
+- updateUser: inMem=Y, inDb=Y
+- deleteUser: inMem=Y, inDb=Y
+## Member profiles
+- getMemberProfile: inMem=Y, inDb=Y
+- getMemberProfileByUserId: inMem=Y, inDb=Y
+- createMemberProfile: inMem=Y, inDb=Y
+- updateMemberProfile: inMem=Y, inDb=Y
+- getMembersByTier: inMem=Y, inDb=Y
+- getAllMemberProfiles: inMem=Y, inDb=Y
+- deleteMemberProfile: inMem=Y, inDb=Y
+## Sanitized public access methods (PII-safe)
+- getPublicContractors: inMem=Y, inDb=Y
+- getPublicMerchants: inMem=Y, inDb=Y
+- getPublicMembersByTier: inMem=Y, inDb=Y
+## Contractor profiles
+- getContractorProfile: inMem=Y, inDb=Y
+- getContractorProfileByUserId: inMem=Y, inDb=Y
+- createContractorProfile: inMem=Y, inDb=Y
+- updateContractorProfile: inMem=Y, inDb=Y
+- getContractors: inMem=Y, inDb=Y
+- verifyContractor: inMem=Y, inDb=Y
+- getAllContractorProfiles: inMem=Y, inDb=Y
+- deleteContractorProfile: inMem=Y, inDb=Y
+## Merchant profiles
+- getMerchantProfile: inMem=Y, inDb=Y
+- getMerchantProfileByUserId: inMem=Y, inDb=Y
+- createMerchantProfile: inMem=Y, inDb=Y
+- updateMerchantProfile: inMem=Y, inDb=Y
+- getMerchants: inMem=Y, inDb=Y
+- getAllMerchantProfiles: inMem=Y, inDb=Y
+- deleteMerchantProfile: inMem=Y, inDb=Y
+## Home details
+- getHomeDetails: inMem=Y, inDb=Y
+- getHomeDetailsByProfileId: inMem=Y, inDb=Y
+- createHomeDetails: inMem=Y, inDb=Y
+- updateHomeDetails: inMem=Y, inDb=Y
+## Service requests
+- getServiceRequest: inMem=Y, inDb=Y
+- getServiceRequestsByMember: inMem=Y, inDb=Y
+- getServiceRequestsByManager: inMem=Y, inDb=Y
+- createServiceRequest: inMem=Y, inDb=Y
+- updateServiceRequest: inMem=Y, inDb=Y
+- assignServiceRequest: inMem=Y, inDb=Y
+- getAllServiceRequests: inMem=Y, inDb=Y
+- deleteServiceRequest: inMem=Y, inDb=Y
+## Work orders
+- getWorkOrder: inMem=Y, inDb=Y
+- getWorkOrders: inMem=Y, inDb=Y
+- getWorkOrdersByServiceRequest: inMem=Y, inDb=Y
+- getWorkOrdersByManager: inMem=Y, inDb=Y
+- getWorkOrdersByContractor: inMem=Y, inDb=Y
+- createWorkOrder: inMem=Y, inDb=Y
+- updateWorkOrder: inMem=Y, inDb=Y
+- completeWorkOrder: inMem=Y, inDb=Y
+- getAllWorkOrders: inMem=Y, inDb=Y
+- deleteWorkOrder: inMem=Y, inDb=Y
+## Estimates
+- getEstimate: inMem=Y, inDb=Y
+- getEstimatesByServiceRequest: inMem=Y, inDb=Y
+- getEstimatesByContractor: inMem=Y, inDb=Y
+- createEstimate: inMem=Y, inDb=Y
+- updateEstimate: inMem=Y, inDb=Y
+- approveEstimate: inMem=Y, inDb=Y
+- rejectEstimate: inMem=Y, inDb=Y
+- getAllEstimates: inMem=Y, inDb=Y
+- deleteEstimate: inMem=Y, inDb=Y
+## Invoices
+- getInvoice: inMem=Y, inDb=Y
+- getInvoicesByMember: inMem=Y, inDb=Y
+- getInvoicesByWorkOrder: inMem=Y, inDb=Y
+- createInvoice: inMem=Y, inDb=Y
+- updateInvoice: inMem=Y, inDb=Y
+- payInvoice: inMem=Y, inDb=Y
+- getAllInvoices: inMem=Y, inDb=Y
+- deleteInvoice: inMem=Y, inDb=Y
+## Loyalty points
+- getLoyaltyPointBalance: inMem=Y, inDb=Y
+- getLoyaltyPointTransactions: inMem=Y, inDb=Y
+- addLoyaltyPoints: inMem=Y, inDb=Y
+- spendLoyaltyPoints: inMem=Y, inDb=Y
+## Deals
+- getDeal: inMem=Y, inDb=Y
+- getDealsByMerchant: inMem=Y, inDb=Y
+- getActiveDeals: inMem=Y, inDb=Y
+- createDeal: inMem=Y, inDb=Y
+- updateDeal: inMem=Y, inDb=Y
+- redeemDeal: inMem=Y, inDb=Y
+- getAllDeals: inMem=Y, inDb=Y
+- deleteDeal: inMem=Y, inDb=Y
+## Messages
+- getMessage: inMem=Y, inDb=Y
+- getMessagesByUser: inMem=Y, inDb=Y
+- getConversation: inMem=Y, inDb=Y
+- createMessage: inMem=Y, inDb=Y
+- markMessageAsRead: inMem=Y, inDb=Y
+- getAllMessages: inMem=Y, inDb=Y
+- deleteMessage: inMem=Y, inDb=Y
+## Notifications
+- getNotification: inMem=Y, inDb=Y
+- getNotificationsByUser: inMem=Y, inDb=Y
+- createNotification: inMem=Y, inDb=Y
+- markNotificationAsRead: inMem=Y, inDb=Y
+- markAllNotificationsAsRead: inMem=Y, inDb=Y
+## Notification Settings
+- getNotificationSettings: inMem=Y, inDb=Y
+- createNotificationSettings: inMem=Y, inDb=Y
+- updateNotificationSettings: inMem=Y, inDb=Y
+## Calendar events
+- getCalendarEvent: inMem=Y, inDb=Y
+- getCalendarEventsByUser: inMem=Y, inDb=Y
+- createCalendarEvent: inMem=Y, inDb=Y
+- updateCalendarEvent: inMem=Y, inDb=Y
+- deleteCalendarEvent: inMem=Y, inDb=Y
+- getAllCalendarEvents: inMem=Y, inDb=Y
+## Community
+- getCommunityPosts: inMem=Y, inDb=Y
+- getCommunityPost: inMem=Y, inDb=Y
+- createCommunityPost: inMem=Y, inDb=Y
+- getCommunityGroups: inMem=Y, inDb=Y
+- getCommunityGroup: inMem=Y, inDb=Y
+- createCommunityGroup: inMem=Y, inDb=Y
+## Forums
+- getForum: inMem=N, inDb=Y
+- getForums: inMem=N, inDb=Y
+- getForumsByGroup: inMem=N, inDb=Y
+- getPublicForums: inMem=N, inDb=Y
+- createForum: inMem=N, inDb=Y
+- updateForum: inMem=N, inDb=Y
+- deleteForum: inMem=N, inDb=Y
+## Forum Topics
+- getForumTopic: inMem=N, inDb=Y
+- getForumTopicBySlug: inMem=N, inDb=Y
+- getForumTopics: inMem=N, inDb=Y
+- getTopicsByAuthor: inMem=N, inDb=Y
+- getRecentTopics: inMem=N, inDb=Y
+- getTrendingTopics: inMem=N, inDb=Y
+- createForumTopic: inMem=N, inDb=Y
+- updateForumTopic: inMem=N, inDb=Y
+- pinTopic: inMem=N, inDb=Y
+- lockTopic: inMem=N, inDb=Y
+- solveTopic: inMem=N, inDb=Y
+- incrementTopicViews: inMem=N, inDb=Y
+- deleteForumTopic: inMem=N, inDb=Y
+## Forum Posts
+- getForumPost: inMem=N, inDb=Y
+- getForumPosts: inMem=N, inDb=Y
+- getPostsByAuthor: inMem=N, inDb=Y
+- getTopLevelPosts: inMem=N, inDb=Y
+- getPostReplies: inMem=N, inDb=Y
+- getPostThread: inMem=N, inDb=Y
+- createForumPost: inMem=N, inDb=Y
+- updateForumPost: inMem=N, inDb=Y
+- markPostAsAnswer: inMem=N, inDb=Y
+- unmarkPostAsAnswer: inMem=N, inDb=Y
+- deleteForumPost: inMem=N, inDb=Y
+## Forum Post Voting
+- getPostVote: inMem=N, inDb=Y
+- getPostVotes: inMem=N, inDb=Y
+- createPostVote: inMem=N, inDb=Y
+- updatePostVote: inMem=N, inDb=Y
+- removePostVote: inMem=N, inDb=Y
+- getPostScore: inMem=N, inDb=Y
+## Forum Statistics and Analytics
+- getForumStats: inMem=N, inDb=Y
+- getTopicStats: inMem=N, inDb=Y
+- getUserForumActivity: inMem=N, inDb=Y
+## Forum Moderation
+- moderatePost: inMem=N, inDb=Y
+- flagPost: inMem=N, inDb=Y
+- getFlaggedPosts: inMem=N, inDb=Y
+## Gamification - Badges
+- getBadge: inMem=Y, inDb=Y
+- getAllBadges: inMem=Y, inDb=Y
+- createBadge: inMem=Y, inDb=Y
+- updateBadge: inMem=Y, inDb=Y
+- deleteBadge: inMem=Y, inDb=Y
+## Gamification - Ranks
+- getRank: inMem=Y, inDb=Y
+- getAllRanks: inMem=Y, inDb=Y
+- createRank: inMem=Y, inDb=Y
+- updateRank: inMem=Y, inDb=Y
+- deleteRank: inMem=Y, inDb=Y
+## Gamification - Achievements
+- getAchievement: inMem=Y, inDb=Y
+- getAllAchievements: inMem=Y, inDb=Y
+- createAchievement: inMem=Y, inDb=Y
+- updateAchievement: inMem=Y, inDb=Y
+- deleteAchievement: inMem=Y, inDb=Y
+## Maintenance Items
+- getMaintenanceItem: inMem=Y, inDb=Y
+- getAllMaintenanceItems: inMem=Y, inDb=Y
+- createMaintenanceItem: inMem=Y, inDb=Y
+- updateMaintenanceItem: inMem=Y, inDb=Y
+- deleteMaintenanceItem: inMem=Y, inDb=Y
+## Time slot management
+- getTimeSlot: inMem=N, inDb=Y
+- getContractorTimeSlots: inMem=N, inDb=Y
+- getOverlappingTimeSlots: inMem=N, inDb=Y
+- createTimeSlot: inMem=N, inDb=Y
+- updateTimeSlot: inMem=N, inDb=Y
+- deleteTimeSlot: inMem=N, inDb=Y
+## Work order scheduling queries
+- getOverlappingWorkOrders: inMem=N, inDb=Y
+- getWorkOrdersByDateRange: inMem=N, inDb=Y
+## Schedule conflict management
+- getScheduleConflict: inMem=N, inDb=Y
+- getScheduleConflictsByWorkOrder: inMem=N, inDb=Y
+- getScheduleConflictsByContractor: inMem=N, inDb=Y
+- createScheduleConflict: inMem=N, inDb=Y
+- updateScheduleConflict: inMem=N, inDb=Y
+- resolveScheduleConflict: inMem=N, inDb=Y
+## Schedule audit logging
+- getScheduleAuditLog: inMem=N, inDb=Y
+- getScheduleAuditLogsByEntity: inMem=N, inDb=Y
+- getScheduleAuditLogsByUser: inMem=N, inDb=Y
+- createScheduleAuditLog: inMem=N, inDb=Y
+## Data seeding and initialization
+- seedComprehensiveData: inMem=Y, inDb=Y
