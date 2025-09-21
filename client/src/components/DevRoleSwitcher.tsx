@@ -40,6 +40,8 @@ export function DevRoleSwitcher() {
     staleTime: 30000, // 30 seconds
   });
 
+  const authUser = (currentUser as any)?.user ?? currentUser;
+
   // Role switch mutation
   const switchRoleMutation = useMutation({
     mutationFn: async (role: string) => {
@@ -51,7 +53,7 @@ export function DevRoleSwitcher() {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
       toast({
         title: "Role switched successfully",
-        description: `You are now a ${data.user.role}`,
+        description: `You are now a ${data.user?.role ?? data.role}`,
       });
       setIsOpen(false);
     },
@@ -64,7 +66,7 @@ export function DevRoleSwitcher() {
     }
   });
 
-  if (userLoading || !currentUser) {
+  if (userLoading || !authUser) {
     return (
       <Button variant="ghost" size="icon" disabled data-testid="dev-role-switcher-loading">
         <Settings className="h-4 w-4" />
@@ -72,7 +74,7 @@ export function DevRoleSwitcher() {
     );
   }
 
-  const currentRole = AVAILABLE_ROLES.find(role => role.value === currentUser.role);
+  const currentRole = AVAILABLE_ROLES.find(role => role.value === authUser?.role);
 
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -89,7 +91,7 @@ export function DevRoleSwitcher() {
             variant="outline" 
             className={`text-xs h-4 ${currentRole?.color} text-white border-none`}
           >
-            {currentRole?.label || currentUser.role}
+            {currentRole?.label || authUser?.role}
           </Badge>
         </Button>
       </PopoverTrigger>
@@ -103,7 +105,7 @@ export function DevRoleSwitcher() {
           
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Current role: <strong className="text-foreground">{currentRole?.label || currentUser.role}</strong>
+              Current role: <strong className="text-foreground">{currentRole?.label || authUser?.role}</strong>
             </p>
             
             <div className="space-y-2">
@@ -122,12 +124,12 @@ export function DevRoleSwitcher() {
                     <SelectItem 
                       key={role.value} 
                       value={role.value}
-                      disabled={role.value === currentUser.role}
+                      disabled={role.value === authUser?.role}
                     >
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${role.color}`} />
                         {role.label}
-                        {role.value === currentUser.role && (
+                        {role.value === authUser?.role && (
                           <span className="text-xs text-muted-foreground">(current)</span>
                         )}
                       </div>

@@ -9,6 +9,7 @@ import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import MemoryStore from "memorystore";
 import { getStorage } from "./storage";
+import { getStorageRepositories } from "./storage/repositories";
 
 // Only require REPLIT_DOMAINS in production
 if (process.env.NODE_ENV === "production" && !process.env.REPLIT_DOMAINS) {
@@ -28,10 +29,12 @@ const getOidcConfig = memoize(
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   
-  let sessionStore;
+  const MemoryStoreFactory = MemoryStore(session);
+  let sessionStore: session.Store;
   
-  // Use PostgreSQL store in production or when DATABASE_URL is available
-  if (process.env.DATABASE_URL) {
+  const forceMemoryStore = process.env.USE_MEMORY_SESSION === "1";
+  
+  if (!forceMemoryStore && process.env.DATABASE_URL) {
     try {
       const pgStore = connectPg(session);
       sessionStore = new pgStore({
@@ -43,12 +46,15 @@ export function getSession() {
       console.log("Using PostgreSQL session store");
     } catch (error) {
       console.warn("Failed to initialize PostgreSQL session store, falling back to memory:", error);
-      sessionStore = new (MemoryStore as any)(sessionTtl);
+      sessionStore = new MemoryStoreFactory({ checkPeriod: sessionTtl });
     }
   } else {
-    // Use memory store for development when no DATABASE_URL
-    sessionStore = new (MemoryStore as any)(sessionTtl);
-    console.log("Using in-memory session store for development");
+    sessionStore = new MemoryStoreFactory({ checkPeriod: sessionTtl });
+    if (forceMemoryStore) {
+      console.log("Using in-memory session store (forced by USE_MEMORY_SESSION=1)");
+    } else {
+      console.log("Using in-memory session store for development");
+    }
   }
 
   return session({
@@ -76,75 +82,129 @@ function updateUserSession(
 }
 
 export async function upsertUser(
+
   claims: any,
+
 ) {
+
   try {
-    // Check if this is the first user and needs admin role
+
     const firstUser = await checkAndSetFirstUserAsAdmin(claims["sub"]);
-    
+
+
+
     const userData = {
+
       id: claims["sub"],
+
       email: claims["email"],
+
       firstName: claims["first_name"],
+
       lastName: claims["last_name"],
+
       profileImageUrl: claims["profile_image_url"],
-      // Set role based on admin bootstrap logic
+
       ...(firstUser && { role: "admin" as any })
+
     };
-    
-    await (await getStorage()).upsertUser(userData);
+
+
+
+    const { users } = await getStorageRepositories();
+
+    await users.upsertUser(userData);
+
   } catch (error) {
+
     console.error("Error upserting user:", error);
+
     throw new Error("Failed to create or update user");
+
   }
+
 }
 
+
+
 async function checkAndSetFirstUserAsAdmin(userId: string): Promise<boolean> {
-  // Check if admin is already set via environment variable
+
   if (process.env.ADMIN_USER_ID && process.env.ADMIN_USER_ID === userId) {
+
     return true;
+
   }
-  
-  // Gate admin bootstrap behind environment flags
-  // Only allow automatic admin bootstrap in development or when explicitly enabled
+
+
+
   const adminBootstrapEnabled = process.env.ADMIN_BOOTSTRAP === "1" || process.env.NODE_ENV === "development";
+
   if (!adminBootstrapEnabled) {
+
     return false;
+
   }
-  
-  // Check if any admin users exist
+
+
+
   try {
-    const existingUser = await (await getStorage()).getUser(userId);
+
+    const { users } = await getStorageRepositories();
+
+    const existingUser = await users.getUser(userId);
+
     if (existingUser?.role === "admin") {
-      return true; // User is already admin
+
+      return true;
+
     }
-    
-    // Simple check: if this is the only user in the system, make them admin
-    // Note: This is a basic implementation - in production you'd want more sophisticated logic
-    const allUsers = await (await getStorage()).getAllUsers?.();
+
+
+
+    const allUsers = await users.getAllUsers();
+
     if (!allUsers || allUsers.length === 0) {
+
       console.log(`Setting first user ${userId} as admin (development mode)`);
+
       return true;
+
     }
-    
-    // Check if no admin exists yet
+
+
+
     const hasAdmin = allUsers.some(user => user.role === "admin");
+
     if (!hasAdmin) {
+
       console.log(`No admin found, setting user ${userId} as admin (development mode)`);
+
       return true;
+
     }
+
   } catch (error) {
+
     console.warn("Error checking admin status, defaulting to non-admin:", error);
+
   }
-  
+
+
+
   return false;
+
 }
+
+
 
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+
+  passport.serializeUser((user: Express.User, cb) => cb(null, user));
+  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   // Skip Replit Auth setup in development if REPLIT_DOMAINS is not set
   if (!process.env.REPLIT_DOMAINS) {
@@ -153,13 +213,15 @@ export async function setupAuth(app: Express) {
     // Development authentication routes
     app.get("/api/login", (req, res) => {
       // Create a mock development user session
+      const mockUserClaims = {
+        sub: "dev-user-123",
+        email: "dev@homehub.com",
+        first_name: "Dev",
+        last_name: "User"
+      };
+
       const mockUser = {
-        claims: () => ({
-          sub: "dev-user-123",
-          email: "dev@homehub.com",
-          first_name: "Dev",
-          last_name: "User"
-        }),
+        claims: mockUserClaims,
         expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
         access_token: "dev-token",
         refresh_token: "dev-refresh-token"
@@ -174,7 +236,7 @@ export async function setupAuth(app: Express) {
         
         // Ensure development user exists in database
         try {
-          await upsertUser(mockUser.claims());
+          await upsertUser(mockUserClaims);
         } catch (error) {
           console.error("Error creating development user:", error);
         }
@@ -217,9 +279,6 @@ export async function setupAuth(app: Express) {
     );
     passport.use(strategy);
   }
-
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
@@ -284,7 +343,8 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const user = await (await getStorage()).getUser(userId);
+      const { users } = await getStorageRepositories();
+      const user = await users.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -314,7 +374,8 @@ export const requireOwnershipOrAdmin = (resourceUserIdField = 'userId'): Request
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const currentUser = await (await getStorage()).getUser(currentUserId);
+      const { users } = await getStorageRepositories();
+      const currentUser = await users.getUser(currentUserId);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }

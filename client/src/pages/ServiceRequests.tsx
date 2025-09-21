@@ -63,10 +63,12 @@ export default function ServiceRequests() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const authUser = (currentUser as AuthUserResponse | undefined)?.user ?? currentUser;
+
   // Fetch member profile for authenticated user
   const { data: memberProfile, isLoading: loadingMemberProfile } = useQuery<MemberProfile>({
-    queryKey: ["/api/members/by-user", (currentUser as any)?.id || 'no-user'],
-    enabled: !!(currentUser as any)?.id,
+    queryKey: ["/api/members/by-user", authUser?.id || 'no-user'],
+    enabled: !!authUser?.id,
     retry: false,
   });
 

@@ -209,80 +209,142 @@ export const ContractorProfileCreateSchema = z.object({
 
 export const ContractorProfileUpdateSchema = ContractorProfileCreateSchema.partial().omit({ userId: true });
 
-// Merchant Profile Validation Schemas
-export const MerchantProfileCreateSchema = z.object({
-  userId: z.string().uuid("Invalid user ID"),
-  businessName: z.string().min(1, "Business name required").max(100, "Business name too long"),
-  ownerName: z.string().min(1, "Owner name required").max(100, "Owner name too long"),
-  phone: z.string().regex(phoneRegex, "Invalid phone number format"),
-  email: z.string().email("Invalid email format"),
-  website: z.string().regex(urlRegex, "Invalid website URL").optional(),
-  
-  // Business address
-  address: z.string().min(1, "Address required").max(200, "Address too long"),
-  city: z.string().min(1, "City required").max(100, "City too long"),
-  state: z.string().min(2, "State required").max(50, "State too long"),
-  zipCode: z.string().regex(zipCodeRegex, "Invalid ZIP code format"),
-  
-  businessType: z.string().min(1, "Business type required").max(100, "Business type too long"),
-  businessDescription: z.string().min(1, "Description required").max(1000, "Description too long"),
-  businessLicense: z.string().min(1, "License required").max(50, "License too long"),
-  taxId: z.string().min(1, "Tax ID required").max(20, "Tax ID too long"),
-  serviceArea: z.string().max(200, "Service area description too long").optional(),
-  specialties: z.array(z.string().min(1, "Specialty required")).optional(),
-  acceptedPaymentMethods: z.array(z.enum(["cash", "check", "credit", "debit", "digital", "financing"])).optional(),
-  businessImages: z.array(z.string().regex(urlRegex, "Invalid image URL")).optional(),
-  logoUrl: z.string().regex(urlRegex, "Invalid logo URL").optional(),
-  
-  // Business operations stored in JSON
-  operationsData: z.object({
-    operatingHours: z.object({
-      monday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
-      tuesday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
-      wednesday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
-      thursday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
-      friday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
-      saturday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
-      sunday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
-    }).optional(),
-    
-    socialMedia: z.object({
-      facebook: z.string().regex(urlRegex, "Invalid URL").optional(),
-      instagram: z.string().regex(urlRegex, "Invalid URL").optional(),
-      twitter: z.string().regex(urlRegex, "Invalid URL").optional(),
-      youtube: z.string().regex(urlRegex, "Invalid URL").optional(),
-      yelp: z.string().regex(urlRegex, "Invalid URL").optional(),
-    }).optional(),
-    
-    deliveryOptions: z.object({
-      delivery: z.boolean().default(false),
-      pickup: z.boolean().default(true),
-      shipping: z.boolean().default(false),
-      deliveryRadius: z.number().min(0, "Invalid radius").optional(),
-      deliveryFee: z.number().min(0, "Invalid fee").optional(),
-      freeDeliveryMinimum: z.number().min(0, "Invalid minimum").optional(),
-    }).optional(),
-    
-    policies: z.object({
-      returnPolicy: z.string().max(500, "Policy too long").optional(),
-      warrantyPolicy: z.string().max(500, "Policy too long").optional(),
-      cancellationPolicy: z.string().max(500, "Policy too long").optional(),
-    }).optional(),
-  }).optional(),
-  
-  // Engagement metrics stored in JSON
-  engagementData: z.object({
-    totalViews: z.number().min(0, "Invalid view count").default(0),
-    totalClicks: z.number().min(0, "Invalid click count").default(0),
-    totalRedemptions: z.number().min(0, "Invalid redemption count").default(0),
-    averageRating: z.number().min(0, "Invalid rating").max(5, "Invalid rating").default(0),
-    totalReviews: z.number().min(0, "Invalid review count").default(0),
-    partnershipStartDate: z.string().optional(),
-    contractStatus: z.enum(["active", "pending", "suspended", "terminated"]).default("pending"),
-  }).optional(),
-}).strict();
+// -----------------------------
+// Merchant Profile Validation
+// -----------------------------
+const normalizeUrl = (v: unknown) =>
+  typeof v === 'string' && v.trim().length
+    ? new URL(v.startsWith('http') ? v.trim() : `https://${v.trim()}`).toString()
+    : undefined
 
-export const MerchantProfileUpdateSchema = MerchantProfileCreateSchema.partial().omit({ userId: true });
+const nonEmptyTrimmed = (label: string, max = 100) =>
+  z.string().trim().min(1, `${label} required`).max(max, `${label} too long`)
+
+export const MerchantProfileCreateSchema = z.object({
+  // Often not available at first submit; server can inject once user exists
+  userId: z.string().uuid('Invalid user ID').optional(),
+
+  // Basic identity
+  businessName: nonEmptyTrimmed('Business name', 100),
+  ownerName: nonEmptyTrimmed('Owner name', 100),
+
+  // Contact
+  phone: z.string().trim().regex(phoneRegex, 'Invalid phone number format'),
+  email: z.string().trim().email('Invalid email format'),
+  website: z
+    .string()
+    .trim()
+    .optional()
+    .transform(normalizeUrl)
+    .refine((v) => !v || urlRegex.test(v), 'Invalid website URL'),
+
+  // Address
+  address: nonEmptyTrimmed('Address', 200),
+  city: nonEmptyTrimmed('City', 100),
+  state: z.string().trim().min(2, 'State required').max(50, 'State too long'),
+  zipCode: z.string().trim().regex(zipCodeRegex, 'Invalid ZIP code format'),
+
+  // Business details
+  businessType: nonEmptyTrimmed('Business type', 100),
+  businessDescription: z.string().trim().min(1, 'Description required').max(1000, 'Description too long'),
+
+  // These are often KYC-ish and may be captured later; keep optional for initial flow
+  businessLicense: z.string().trim().max(50, 'License too long').optional(),
+  taxId: z.string().trim().max(20, 'Tax ID too long').optional(),
+
+  serviceArea: z.string().trim().max(200, 'Service area description too long').optional(),
+  specialties: z.array(z.string().trim().min(1, 'Specialty required')).optional(),
+
+  acceptedPaymentMethods: z
+    .array(z.enum(['cash', 'check', 'credit', 'debit', 'digital', 'financing']))
+    .optional(),
+
+  businessImages: z.array(z.string().trim().regex(urlRegex, 'Invalid image URL')).optional(),
+  logoUrl: z
+    .string()
+    .trim()
+    .optional()
+    .transform(normalizeUrl)
+    .refine((v) => !v || urlRegex.test(v), 'Invalid logo URL'),
+
+  // Ops data stays optional JSON; normalize URLs inside
+  operationsData: z
+    .object({
+      operatingHours: z
+        .object({
+          monday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
+          tuesday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
+          wednesday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
+          thursday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
+          friday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
+          saturday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional(),
+          sunday: z.object({ start: z.string(), end: z.string(), closed: z.boolean().default(false) }).optional()
+        })
+        .optional(),
+
+      socialMedia: z
+        .object({
+          facebook: z.string().trim().optional().transform(normalizeUrl),
+          instagram: z.string().trim().optional().transform(normalizeUrl),
+          twitter: z.string().trim().optional().transform(normalizeUrl),
+          youtube: z.string().trim().optional().transform(normalizeUrl),
+          yelp: z.string().trim().optional().transform(normalizeUrl)
+        })
+        .optional(),
+
+      deliveryOptions: z
+        .object({
+          delivery: z.boolean().default(false),
+          pickup: z.boolean().default(true),
+          shipping: z.boolean().default(false),
+          deliveryRadius: z.number().min(0, 'Invalid radius').optional(),
+          deliveryFee: z.number().min(0, 'Invalid fee').optional(),
+          freeDeliveryMinimum: z.number().min(0, 'Invalid minimum').optional()
+        })
+        .optional(),
+
+      policies: z
+        .object({
+          returnPolicy: z.string().trim().max(500, 'Policy too long').optional(),
+          warrantyPolicy: z.string().trim().max(500, 'Policy too long').optional(),
+          cancellationPolicy: z.string().trim().max(500, 'Policy too long').optional()
+        })
+        .optional()
+    })
+    .optional(),
+
+  // Engagement metrics are server-side concerns; keep optional with defaults
+  engagementData: z
+    .object({
+      totalViews: z.number().min(0).default(0),
+      totalClicks: z.number().min(0).default(0),
+      totalRedemptions: z.number().min(0).default(0),
+      averageRating: z.number().min(0).max(5).default(0),
+      totalReviews: z.number().min(0).default(0),
+      partnershipStartDate: z.string().optional(),
+      contractStatus: z.enum(['active', 'pending', 'suspended', 'terminated']).default('pending')
+    })
+    .optional()
+}).strict()
+
+export const MerchantProfileUpdateSchema = MerchantProfileCreateSchema.partial().omit({ userId: true })
+
+// Helpful runtime type for the form layer
+// Optional: lightweight default values for the registration form
+export const MerchantProfileCreateDefaults: Partial<z.infer<typeof MerchantProfileCreateSchema>> = {
+  acceptedPaymentMethods: ['credit', 'debit'],
+  operationsData: {
+    deliveryOptions: { pickup: true, delivery: false, shipping: false }
+  },
+  engagementData: {
+    totalViews: 0,
+    totalClicks: 0,
+    totalRedemptions: 0,
+    averageRating: 0,
+    totalReviews: 0,
+    contractStatus: 'pending'
+  }
+}
 
 // User and Profile Types (for responses)
 export interface User {
@@ -491,7 +553,9 @@ export const ServiceRequestCreateSchema = z.object({
   serviceMetadata: z.record(z.any()).optional(),
 }).strict();
 
-export const ServiceRequestUpdateSchema = ServiceRequestCreateSchema.partial().omit({ memberId: true });
+export const ServiceRequestUpdateSchema = ServiceRequestCreateSchema.partial().omit({ memberId: true }).extend({
+  status: z.enum(["pending", "assigned", "in_progress", "completed", "cancelled", "on_hold", "requires_approval"]).optional(),
+});
 
 // Work Order Validation Schemas
 export const WorkOrderCreateSchema = z.object({

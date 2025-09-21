@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import Stripe from "stripe";
 import express from "express";
 import { getStorage } from "./storage";
+import { getStorageRepositories } from "./storage/repositories";
 import { 
   setupAuth, 
   isAuthenticated, 
@@ -36,6 +37,7 @@ import {
   type MerchantProfile,
   type NotificationSettings,
   type InsertNotificationSettings,
+  type ServiceRequest,
   type Forum,
   type ForumTopic,
   type ForumPost,
@@ -65,6 +67,7 @@ import {
   type AdminSlotOverrideRequest
 } from "./schedulingService";
 // ADD near top with imports
+import { ServiceRequestCreateSchema } from "@shared/types";
 // Note: scheduleOrThrow and PDF generation features would need implementation
 // Using placeholder implementations for now
 
@@ -225,34 +228,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth endpoint - Get current authenticated user
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      console.log(`[DEBUG] Looking for user ID: "${userId}" (type: ${typeof userId})`);
-      let user = await (await getStorage()).getUser(userId);
-      console.log(`[DEBUG] Initial getUser result: ${user ? 'found' : 'not found'}`);
-      
-      // If user doesn't exist, create them from the authenticated claims
+      const rawUserId = req.user.claims.sub;
+      const userId = String(rawUserId);
+      const { users } = await getStorageRepositories();
+
+      let user = await users.getUser(userId);
+
       if (!user) {
-        console.log(`Creating new user from auth claims: ${userId}`);
-        const claims = req.user.claims;
-        console.log(`[DEBUG] Claims sub: "${claims.sub}" (type: ${typeof claims.sub})`);
-        await upsertUser(claims);
-        user = await (await getStorage()).getUser(userId);
-        console.log(`[DEBUG] After upsertUser, getUser result: ${user ? 'found' : 'not found'}`);
-        
-        // Double-check: try converting userId to string
-        if (!user && typeof userId === 'number') {
-          const userIdStr = String(userId);
-          console.log(`[DEBUG] Trying string conversion: "${userIdStr}"`);
-          user = await (await getStorage()).getUser(userIdStr);
-          console.log(`[DEBUG] String conversion result: ${user ? 'found' : 'not found'}`);
-        }
+        await upsertUser(req.user.claims);
+        user = await users.getUser(userId);
       }
-      
+
+      if (!user && typeof rawUserId === 'number') {
+        user = await users.getUser(String(rawUserId));
+      }
+
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-      
-      // Sanitize user data - remove sensitive fields
+
       const sanitizedUser = {
         id: user.id,
         email: user.email,
@@ -263,52 +257,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: user.isActive,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
-        // Exclude: username, password (even if null)
       };
-      
+
       res.json({ user: sanitizedUser });
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ error: "Failed to fetch user" });
     }
   });
+
   // User Management Routes (PROTECTED - PII access)
+
   app.get("/api/users/:id", isAuthenticated, async (req: any, res) => {
+
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+
+      const { users } = await getStorageRepositories();
+
+      const currentUser = await users.getUser(String(req.user.claims.sub));
+
       const targetId = req.params.id;
-      
-      // Only allow access to own profile or admin access
+
+
+
       if (currentUser?.id !== targetId && currentUser?.role !== "admin") {
+
         return res.status(403).json({ error: "Access denied" });
+
       }
 
-      const user = await (await getStorage()).getUser(targetId);
+
+
+      const user = await users.getUser(targetId);
+
       if (!user) {
+
         return res.status(404).json({ error: "User not found" });
+
       }
+
       res.json(user);
+
     } catch (error) {
+
       res.status(500).json({ error: "Internal server error" });
+
     }
+
   });
+
+
 
   app.get("/api/users/by-username/:username", isAuthenticated, async (req: any, res) => {
+
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+
+      const { users } = await getStorageRepositories();
+
+      const currentUser = await users.getUser(String(req.user.claims.sub));
+
       if (currentUser?.role !== "admin") {
+
         return res.status(403).json({ error: "Admin access required" });
+
       }
 
-      const user = await (await getStorage()).getUserByUsername(req.params.username);
+
+
+      const user = await users.getUserByUsername(req.params.username);
+
       if (!user) {
+
         return res.status(404).json({ error: "User not found" });
+
       }
+
       res.json(user);
+
     } catch (error) {
+
       res.status(500).json({ error: "Internal server error" });
+
     }
+
   });
+
+
 
   // DEPRECATED: User creation now handled by Replit Auth
   app.post("/api/users", async (req, res) => {
@@ -319,7 +353,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/users/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { users: userStorage } = await getStorageRepositories();
+      const currentUser = await userStorage.getUser(req.user.claims.sub);
       const targetId = req.params.id;
       
       // Only allow updating own profile or admin access
@@ -328,7 +363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validatedData = UserProfileUpdateSchema.parse(req.body);
-      const user = await (await getStorage()).updateUser(targetId, validatedData);
+      const user = await userStorage.updateUser(targetId, validatedData);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -384,17 +419,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Notification Settings Routes (PROTECTED)
+
   app.get("/api/notification-settings", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      let settings = await (await getStorage()).getNotificationSettings(userId);
-      
-      // If no settings exist, create default settings
+      const { notificationSettingsStorage } = await getNotificationRepositories();
+      const userId = String(req.user.claims.sub);
+
+      let settings = await notificationSettingsStorage.getNotificationSettings(userId);
       if (!settings) {
         const defaultSettings: InsertNotificationSettings = { userId };
-        settings = await (await getStorage()).createNotificationSettings(defaultSettings);
+        settings = await notificationSettingsStorage.createNotificationSettings(defaultSettings);
       }
-      
+
       res.json(settings);
     } catch (error) {
       console.error("Error fetching notification settings:", error);
@@ -404,51 +440,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/notification-settings", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      // Create a partial schema for updates (all fields except userId are optional)
+      const { notificationSettingsStorage } = await getNotificationRepositories();
+      const userId = String(req.user.claims.sub);
       const updateSchema = insertNotificationSettingsSchema.omit({ userId: true }).partial();
       const validatedData = updateSchema.parse(req.body);
-      
-      // Check if settings exist, create if not
-      let existingSettings = await (await getStorage()).getNotificationSettings(userId);
-      
+
+
+      let existingSettings = await notificationSettingsStorage.getNotificationSettings(userId);
+
+
+
       if (!existingSettings) {
-        // Create new settings with the provided data
+
         const createData: InsertNotificationSettings = { userId, ...validatedData };
-        existingSettings = await (await getStorage()).createNotificationSettings(createData);
+
+        existingSettings = await notificationSettingsStorage.createNotificationSettings(createData);
+
       } else {
-        // Update existing settings
-        existingSettings = await (await getStorage()).updateNotificationSettings(userId, validatedData);
+
+        existingSettings = await notificationSettingsStorage.updateNotificationSettings(userId, validatedData);
+
       }
-      
+
+
+
       if (!existingSettings) {
+
         return res.status(404).json({ error: "Failed to update notification settings" });
+
       }
-      
+
+
+
       res.json(existingSettings);
+
     } catch (error: any) {
+
       if (error.name === 'ZodError') {
+
         return res.status(400).json({ error: "Invalid notification settings data", details: error.errors });
+
       }
+
       console.error("Error updating notification settings:", error);
+
       res.status(500).json({ error: "Failed to update notification settings" });
+
     }
+
   });
+
+
 
   // Member Profile Routes (PROTECTED - PII access)
   app.get("/api/members/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { users, members } = await getStorageRepositories();
+      const currentUser = await users.getUser(String(req.user.claims.sub));
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const profile = await (await getStorage()).getMemberProfile(req.params.id);
+      const profile = await members.getMemberProfile(req.params.id);
       if (!profile) {
         return res.status(404).json({ error: "Member profile not found" });
       }
 
-      // Only allow access to own profile or admin access
       if (profile.userId !== currentUser.id && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -461,15 +518,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/members/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { users, members } = await getStorageRepositories();
+      const currentUser = await users.getUser(String(req.user.claims.sub));
       const targetUserId = req.params.userId;
-      
-      // Only allow access to own profile or admin access
+
       if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const profile = await (await getStorage()).getMemberProfileByUserId(targetUserId);
+      const profile = await members.getMemberProfileByUserId(targetUserId);
       if (!profile) {
         return res.status(404).json({ error: "Member profile not found" });
       }
@@ -481,25 +538,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/members", isAuthenticated, async (req: any, res) => {
     try {
+      const { users, members } = await getStorageRepositories();
       const validatedData = insertMemberProfileSchema.parse(req.body);
-      
-      // Ensure the user is creating their own profile or is admin
-      const currentUserId = req.user.claims.sub;
+
+      const currentUserId = String(req.user.claims.sub);
       if (validatedData.userId !== currentUserId) {
-        const currentUser = await (await getStorage()).getUser(currentUserId);
+        const currentUser = await users.getUser(currentUserId);
         if (!currentUser || currentUser.role !== "admin") {
           return res.status(403).json({ error: "Can only create your own member profile" });
         }
       }
-      
-      // Process data for storage - the schema validation passes but storage needs exact types
-      const processedData = {
-        ...validatedData,
-        // Convert any date strings to Date objects if needed
-        // No additional processing needed for basic fields
-      };
-      
-      const profile = await (await getStorage()).createMemberProfile(processedData);
+
+      const profile = await members.createMemberProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
       console.error("Member creation error:", error);
@@ -512,8 +562,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/members/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
+      const { members } = await getStorageRepositories();
       const validatedData = MemberProfileUpdateSchema.parse(req.body);
-      const profile = await (await getStorage()).updateMemberProfile(req.params.id, validatedData);
+      const profile = await members.updateMemberProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Member profile not found" });
       }
@@ -526,32 +577,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  async function getDirectoryRepositories() {
+    const {
+      users,
+      members,
+      contractors,
+      merchants,
+    } = await getStorageRepositories();
+
+    return {
+      userStorage: users,
+      memberStorage: members,
+      contractorStorage: contractors,
+      merchantStorage: merchants,
+    };
+  }
+
   app.get("/api/members/by-tier/:tier", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, memberStorage } = await getDirectoryRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser || currentUser.role !== "admin") {
         return res.status(403).json({ error: "Admin access required" });
       }
 
-      const members = await (await getStorage()).getMembersByTier(req.params.tier);
+      const members = await memberStorage.getMembersByTier(req.params.tier);
       res.json(members);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
+
+
   // Contractor Profile Routes
   app.get("/api/contractors", async (req, res) => {
     try {
+      const { contractorStorage } = await getDirectoryRepositories();
       const filters = {
         isVerified: req.query.verified ? req.query.verified === 'true' : undefined,
         isActive: req.query.active ? req.query.active === 'true' : undefined,
         specialties: req.query.specialties ? String(req.query.specialties).split(',') : undefined,
         location: req.query.location ? String(req.query.location) : undefined
       };
-      const contractors = await (await getStorage()).getContractors(filters);
-      
-      // Sanitize PII for public access
+      const contractors = await contractorStorage.getContractors(filters);
+
       const sanitizedContractors = contractors.map(contractor => sanitizeContractorProfile(contractor));
       res.json(sanitizedContractors);
     } catch (error) {
@@ -559,19 +629,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.get("/api/contractors/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, contractorStorage } = await getDirectoryRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const profile = await (await getStorage()).getContractorProfile(req.params.id);
+      const profile = await contractorStorage.getContractorProfile(req.params.id);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
 
-      // Only allow access to own profile or admin access
       if (profile.userId !== currentUser.id && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -582,17 +654,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.get("/api/contractors/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, contractorStorage } = await getDirectoryRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       const targetUserId = req.params.userId;
-      
-      // Only allow access to own profile or admin access
+
       if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const profile = await (await getStorage()).getContractorProfileByUserId(targetUserId);
+      const profile = await contractorStorage.getContractorProfileByUserId(targetUserId);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
@@ -602,26 +676,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.post("/api/contractors", isAuthenticated, async (req: any, res) => {
     try {
+      const { userStorage, contractorStorage } = await getDirectoryRepositories();
       const validatedData = insertContractorProfileSchema.parse(req.body);
-      
-      // Ensure the user is creating their own profile or is admin
-      const currentUserId = req.user.claims.sub;
+
+      const currentUserId = String(req.user.claims.sub);
       if (validatedData.userId !== currentUserId) {
-        const currentUser = await (await getStorage()).getUser(currentUserId);
+        const currentUser = await userStorage.getUser(currentUserId);
         if (!currentUser || currentUser.role !== "admin") {
           return res.status(403).json({ error: "Can only create your own contractor profile" });
         }
       }
-      
-      // Convert string dates to Date objects for database compatibility
+
       const processedData = {
         ...validatedData,
-        licenseExpiryDate: validatedData.licenseExpiryDate ? new Date(validatedData.licenseExpiryDate) : undefined
+        licenseExpiryDate: validatedData.licenseExpiryDate ? new Date(validatedData.licenseExpiryDate) : undefined,
       };
-      
-      const profile = await (await getStorage()).createContractorProfile(processedData);
+
+      const profile = await contractorStorage.createContractorProfile(processedData);
       res.status(201).json(profile);
     } catch (error: any) {
       console.error("Contractor creation error:", error);
@@ -632,10 +707,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.put("/api/contractors/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
+      const { contractorStorage } = await getDirectoryRepositories();
       const validatedData = ContractorProfileUpdateSchema.parse(req.body);
-      const profile = await (await getStorage()).updateContractorProfile(req.params.id, validatedData);
+      const profile = await contractorStorage.updateContractorProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
@@ -648,9 +726,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.post("/api/contractors/:id/verify", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, contractorStorage } = await getDirectoryRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser || currentUser.role !== "admin") {
         return res.status(403).json({ error: "Admin access required" });
       }
@@ -659,7 +740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!verifiedBy) {
         return res.status(400).json({ error: "verifiedBy is required" });
       }
-      const profile = await (await getStorage()).verifyContractor(req.params.id, verifiedBy);
+      const profile = await contractorStorage.verifyContractor(req.params.id, verifiedBy);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
@@ -669,18 +750,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   // Merchant Profile Routes
   app.get("/api/merchants", async (req, res) => {
     try {
+      const { merchantStorage } = await getDirectoryRepositories();
       const filters = {
         isVerified: req.query.verified ? req.query.verified === 'true' : undefined,
         isActive: req.query.active ? req.query.active === 'true' : undefined,
         businessType: req.query.businessType ? String(req.query.businessType) : undefined,
         location: req.query.location ? String(req.query.location) : undefined
       };
-      const merchants = await (await getStorage()).getMerchants(filters);
-      
-      // Sanitize PII for public access
+      const merchants = await merchantStorage.getMerchants(filters);
+
       const sanitizedMerchants = merchants.map(merchant => sanitizeMerchantProfile(merchant));
       res.json(sanitizedMerchants);
     } catch (error) {
@@ -688,19 +771,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.get("/api/merchants/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, merchantStorage } = await getDirectoryRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const profile = await (await getStorage()).getMerchantProfile(req.params.id);
+      const profile = await merchantStorage.getMerchantProfile(req.params.id);
       if (!profile) {
         return res.status(404).json({ error: "Merchant profile not found" });
       }
 
-      // Only allow access to own profile or admin access
       if (profile.userId !== currentUser.id && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -711,17 +796,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.get("/api/merchants/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, merchantStorage } = await getDirectoryRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       const targetUserId = req.params.userId;
-      
-      // Only allow access to own profile or admin access
+
       if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const profile = await (await getStorage()).getMerchantProfileByUserId(targetUserId);
+      const profile = await merchantStorage.getMerchantProfileByUserId(targetUserId);
       if (!profile) {
         return res.status(404).json({ error: "Merchant profile not found" });
       }
@@ -731,20 +818,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.post("/api/merchants", isAuthenticated, async (req: any, res) => {
     try {
+      const { userStorage, merchantStorage } = await getDirectoryRepositories();
       const validatedData = insertMerchantProfileSchema.parse(req.body);
-      
-      // Ensure the user is creating their own profile or is admin
-      const currentUserId = req.user.claims.sub;
+
+      const currentUserId = String(req.user.claims.sub);
       if (validatedData.userId !== currentUserId) {
-        const currentUser = await (await getStorage()).getUser(currentUserId);
+        const currentUser = await userStorage.getUser(currentUserId);
         if (!currentUser || currentUser.role !== "admin") {
           return res.status(403).json({ error: "Can only create your own merchant profile" });
         }
       }
-      
-      const profile = await (await getStorage()).createMerchantProfile(validatedData);
+
+      const profile = await merchantStorage.createMerchantProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -754,10 +843,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.put("/api/merchants/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
+      const { merchantStorage } = await getDirectoryRepositories();
       const validatedData = MerchantProfileUpdateSchema.parse(req.body);
-      const profile = await (await getStorage()).updateMerchantProfile(req.params.id, validatedData);
+      const profile = await merchantStorage.updateMerchantProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Merchant profile not found" });
       }
@@ -769,6 +861,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Internal server error" });
     }
   });
+
+
 
   // Home Details Routes
   app.get("/api/home-details/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
@@ -836,25 +930,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Service Request Routes
-  app.get("/api/service-requests/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/service-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, memberStorage, contractorStorage, serviceRequestStorage } =
+        await getServiceRequestRepositories();
+      const currentUserId = String(req.user.claims.sub);
+      const currentUser = await userStorage.getUser(currentUserId);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const request = await (await getStorage()).getServiceRequest(req.params.id);
+      const serviceTypeFilter = req.query.serviceType ? String(req.query.serviceType) : undefined;
+      const statusFilter = req.query.status ? String(req.query.status) : undefined;
+      const requestedMemberId = req.query.memberId ? String(req.query.memberId) : undefined;
+
+      let requests: ServiceRequest[] = [];
+
+      switch (currentUser.role) {
+        case "admin": {
+          requests = await serviceRequestStorage.getAllServiceRequests();
+          if (requestedMemberId) {
+            requests = requests.filter((reqItem) => reqItem.memberId === requestedMemberId);
+          }
+          break;
+        }
+        case "manager": {
+          requests = await serviceRequestStorage.getServiceRequestsByManager(currentUser.id);
+          break;
+        }
+        case "contractor": {
+          const contractorProfile = await contractorStorage.getContractorProfileByUserId(currentUser.id);
+          if (contractorProfile) {
+            const assignedRequests = await serviceRequestStorage.getAllServiceRequests();
+            requests = assignedRequests.filter((reqItem) => reqItem.assignedContractorId === contractorProfile.id);
+          }
+          break;
+        }
+        default: {
+          const memberProfile = await memberStorage.getMemberProfileByUserId(currentUser.id);
+          if (memberProfile) {
+            requests = await serviceRequestStorage.getServiceRequestsByMember(memberProfile.id);
+          }
+          break;
+        }
+      }
+
+      if (serviceTypeFilter) {
+        requests = requests.filter((reqItem) => reqItem.serviceType === serviceTypeFilter);
+      }
+
+      if (statusFilter) {
+        requests = requests.filter((reqItem) => reqItem.status === statusFilter);
+      }
+
+      res.json({
+        requests,
+        total: requests.length,
+      });
+    } catch (error) {
+      console.error("Error fetching service request list:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  async function getServiceRequestRepositories() {
+    const {
+      users,
+      members,
+      contractors,
+      serviceRequests,
+    } = await getStorageRepositories();
+
+    return {
+      userStorage: users,
+      memberStorage: members,
+      contractorStorage: contractors,
+      serviceRequestStorage: serviceRequests,
+    };
+  }
+
+  // Service Request Routes
+  app.get("/api/service-requests/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { userStorage, memberStorage, contractorStorage, serviceRequestStorage } =
+        await getServiceRequestRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
+      if (!currentUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const request = await serviceRequestStorage.getServiceRequest(req.params.id);
       if (!request) {
         return res.status(404).json({ error: "Service request not found" });
       }
 
-      // Check if user is member who created this request, assigned contractor, or admin
-      const memberProfile = await (await getStorage()).getMemberProfile(request.memberId);
+      const memberProfile = await memberStorage.getMemberProfile(request.memberId);
+      const contractorProfile = request.assignedContractorId
+        ? await contractorStorage.getContractorProfile(request.assignedContractorId)
+        : undefined;
       const isOwner = memberProfile && memberProfile.userId === currentUser.id;
-      const isAssignedContractor = request.assignedContractorId && 
-        await (await getStorage()).getContractorProfile(request.assignedContractorId).then(cp => cp?.userId === currentUser.id);
-      
+      const isAssignedContractor = contractorProfile && contractorProfile.userId === currentUser.id;
+
       if (!isOwner && !isAssignedContractor && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -867,22 +1043,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/service-requests/by-member/:memberId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, memberStorage, serviceRequestStorage } =
+        await getServiceRequestRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      // Check if user owns this member profile or is admin
-      const memberProfile = await (await getStorage()).getMemberProfile(req.params.memberId);
+      const memberProfile = await memberStorage.getMemberProfile(req.params.memberId);
       if (!memberProfile) {
         return res.status(404).json({ error: "Member profile not found" });
       }
-      
+
       if (memberProfile.userId !== currentUser.id && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const requests = await (await getStorage()).getServiceRequestsByMember(req.params.memberId);
+      const requests = await serviceRequestStorage.getServiceRequestsByMember(req.params.memberId);
       res.json(requests);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -891,17 +1068,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/service-requests/by-manager/:homeManagerId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, serviceRequestStorage } = await getServiceRequestRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      // Check if user is the home manager or admin
       if (req.params.homeManagerId !== currentUser.id && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const requests = await (await getStorage()).getServiceRequestsByManager(req.params.homeManagerId);
+      const requests = await serviceRequestStorage.getServiceRequestsByManager(req.params.homeManagerId);
       res.json(requests);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -911,36 +1088,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/service-requests", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = ServiceRequestCreateSchema.parse(req.body);
-      
-      // Ensure user is creating request for their own member profile or is admin
-      const currentUserId = req.user.claims.sub;
-      const currentUser = await (await getStorage()).getUser(currentUserId);
-      
+      const { userStorage, memberStorage, serviceRequestStorage } =
+        await getServiceRequestRepositories();
+      const currentUserId = String(req.user.claims.sub);
+      const currentUser = await userStorage.getUser(currentUserId);
+
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
-      
+
       let memberProfile;
-      // For non-admins, check if they're creating for their own member profile
       if (currentUser.role !== "admin") {
-        memberProfile = await (await getStorage()).getMemberProfileByUserId(currentUserId);
+        memberProfile = await memberStorage.getMemberProfileByUserId(currentUserId);
         if (!memberProfile || validatedData.memberId !== memberProfile.id) {
           return res.status(403).json({ error: "Can only create service requests for your own account" });
         }
       } else {
-        // For admins, fetch the target member profile
-        memberProfile = await (await getStorage()).getMemberProfile(validatedData.memberId);
+        memberProfile = await memberStorage.getMemberProfile(validatedData.memberId);
         if (!memberProfile) {
           return res.status(404).json({ error: "Member profile not found" });
         }
       }
 
-      // Use ServiceWorkflowManager for validation and processing
       if (!validatedData.serviceType) {
         return res.status(400).json({ error: "Service type is required" });
       }
 
-      // Validate service request using ServiceWorkflowManager
       const validation = ServiceWorkflowManager.validateServiceRequest(
         validatedData.serviceType as ServiceType,
         memberProfile.membershipTier,
@@ -948,20 +1121,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       if (!validation.isValid) {
-        return res.status(400).json({ 
-          error: "Service request validation failed", 
-          details: validation.errors 
+        return res.status(400).json({
+          error: "Service request validation failed",
+          details: validation.errors
         });
       }
 
-      // Process service request with ServiceWorkflowManager enhancements
       const processedData = ServiceWorkflowManager.processServiceRequest(
         validatedData.serviceType as ServiceType,
         validatedData,
         memberProfile.membershipTier
       );
-      
-      const request = await (await getStorage()).createServiceRequest(processedData);
+
+      const request = await serviceRequestStorage.createServiceRequest(processedData);
       res.status(201).json(request);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -974,27 +1146,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/service-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertServiceRequestSchema.partial().parse(req.body);
-      const currentUserId = req.user.claims.sub;
-      const currentUser = await (await getStorage()).getUser(currentUserId);
-      
+      const { userStorage, memberStorage, serviceRequestStorage } =
+        await getServiceRequestRepositories();
+      const currentUserId = String(req.user.claims.sub);
+      const currentUser = await userStorage.getUser(currentUserId);
+
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
-      
-      // Check ownership or admin permissions
-      const serviceRequest = await (await getStorage()).getServiceRequest(req.params.id);
+
+      const serviceRequest = await serviceRequestStorage.getServiceRequest(req.params.id);
       if (!serviceRequest) {
         return res.status(404).json({ error: "Service request not found" });
       }
-      
+
       if (currentUser.role !== "admin") {
-        const memberProfile = await (await getStorage()).getMemberProfileByUserId(currentUserId);
+        const memberProfile = await memberStorage.getMemberProfileByUserId(currentUserId);
         if (!memberProfile || serviceRequest.memberId !== memberProfile.id) {
           return res.status(403).json({ error: "Access denied" });
         }
       }
-      
-      const request = await (await getStorage()).updateServiceRequest(req.params.id, validatedData);
+
+      const request = await serviceRequestStorage.updateServiceRequest(req.params.id, validatedData);
       res.json(request);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -1010,7 +1183,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!homeManagerId) {
         return res.status(400).json({ error: "homeManagerId is required" });
       }
-      const request = await (await getStorage()).assignServiceRequest(req.params.id, homeManagerId);
+      const { serviceRequestStorage } = await getServiceRequestRepositories();
+      const request = await serviceRequestStorage.assignServiceRequest(req.params.id, homeManagerId);
       if (!request) {
         return res.status(404).json({ error: "Service request not found" });
       }
@@ -2128,20 +2302,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  async function getNotificationRepositories() {
+    const {
+      users,
+      notifications,
+      notificationSettings,
+    } = await getStorageRepositories();
+
+    return {
+      userStorage: users,
+      notificationStorage: notifications,
+      notificationSettingsStorage: notificationSettings,
+    };
+  }
+
+  async function getCalendarRepositories() {
+    const {
+      users,
+      calendar,
+    } = await getStorageRepositories();
+
+    return {
+      userStorage: users,
+      calendarStorage: calendar,
+    };
+  }
+
   // Notification Routes
   app.get("/api/notifications/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, notificationStorage } = await getNotificationRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const notification = await (await getStorage()).getNotification(req.params.id);
+      const notification = await notificationStorage.getNotification(req.params.id);
       if (!notification) {
         return res.status(404).json({ error: "Notification not found" });
       }
 
-      // Check if user owns this notification or is admin
       if (notification.userId !== currentUser.id && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -2152,27 +2352,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.get("/api/notifications/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, notificationStorage } = await getNotificationRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       const targetUserId = req.params.userId;
-      
-      // Only allow access to own notifications or admin access
+
       if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
         return res.status(403).json({ error: "Access denied - can only view your own notifications" });
       }
 
-      const notifications = await (await getStorage()).getNotificationsByUser(req.params.userId);
+      const notifications = await notificationStorage.getNotificationsByUser(req.params.userId);
       res.json(notifications);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
+
+
   app.post("/api/notifications", isAuthenticated, async (req: any, res) => {
     try {
+      const { notificationStorage } = await getNotificationRepositories();
       const validatedData = insertNotificationSchema.parse(req.body);
-      const notification = await (await getStorage()).createNotification(validatedData);
+      const notification = await notificationStorage.createNotification(validatedData);
       res.status(201).json(notification);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2182,51 +2387,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.put("/api/notifications/:id/read", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, notificationStorage } = await getNotificationRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const notification = await (await getStorage()).getNotification(req.params.id);
+      const notification = await notificationStorage.getNotification(req.params.id);
       if (!notification) {
         return res.status(404).json({ error: "Notification not found" });
       }
 
-      // Check if user owns this notification or is admin
       if (notification.userId !== currentUser.id && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Can only mark your own notifications as read" });
       }
 
-      const updatedNotification = await (await getStorage()).markNotificationAsRead(req.params.id);
+      const updatedNotification = await notificationStorage.markNotificationAsRead(req.params.id);
       res.json(updatedNotification);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
+
+
   app.put("/api/notifications/read-all/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { userStorage, notificationStorage } = await getNotificationRepositories();
+      const currentUser = await userStorage.getUser(String(req.user.claims.sub));
       const targetUserId = req.params.userId;
-      
-      // Only allow marking own notifications or admin access
+
       if (currentUser?.id !== targetUserId && currentUser?.role !== "admin") {
         return res.status(403).json({ error: "Can only mark your own notifications as read" });
       }
 
-      await (await getStorage()).markAllNotificationsAsRead(req.params.userId);
+      await notificationStorage.markAllNotificationsAsRead(req.params.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
+
+
   // Calendar Event Routes
   app.get("/api/calendar-events/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
-      const event = await (await getStorage()).getCalendarEvent(req.params.id);
+      const { calendarStorage } = await getCalendarRepositories();
+      const event = await calendarStorage.getCalendarEvent(req.params.id);
       if (!event) {
         return res.status(404).json({ error: "Calendar event not found" });
       }
@@ -2236,40 +2448,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.get("/api/calendar-events/by-user/:userId", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUserId = req.user.claims.sub;
+      const { userStorage, calendarStorage } = await getCalendarRepositories();
+      const currentUserId = String(req.user.claims.sub);
       const targetUserId = req.params.userId;
-      
-      // Only allow access to own calendar or admin access
+
       if (currentUserId !== targetUserId) {
-        const currentUser = await (await getStorage()).getUser(currentUserId);
+        const currentUser = await userStorage.getUser(currentUserId);
         if (!currentUser || currentUser.role !== "admin") {
           return res.status(403).json({ error: "Access denied - can only view your own calendar" });
         }
       }
-      
-      const events = await (await getStorage()).getCalendarEventsByUser(req.params.userId);
+
+      const events = await calendarStorage.getCalendarEventsByUser(req.params.userId);
       res.json(events);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
+
+
   app.post("/api/calendar-events", isAuthenticated, async (req: any, res) => {
     try {
+      const { userStorage, calendarStorage } = await getCalendarRepositories();
       const validatedData = CalendarEventCreateSchema.parse(req.body);
-      
-      // Ensure user is creating event for themselves or is admin
-      const currentUserId = req.user.claims.sub;
+
+      const currentUserId = String(req.user.claims.sub);
       if (validatedData.userId !== currentUserId) {
-        const currentUser = await (await getStorage()).getUser(currentUserId);
+        const currentUser = await userStorage.getUser(currentUserId);
         if (!currentUser || currentUser.role !== "admin") {
           return res.status(403).json({ error: "Can only create calendar events for yourself" });
         }
       }
-      
-      const event = await (await getStorage()).createCalendarEvent(validatedData);
+
+      const event = await calendarStorage.createCalendarEvent(validatedData);
       res.status(201).json(event);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2279,10 +2495,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.put("/api/calendar-events/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
+      const { calendarStorage } = await getCalendarRepositories();
       const validatedData = CalendarEventUpdateSchema.parse(req.body);
-      const event = await (await getStorage()).updateCalendarEvent(req.params.id, validatedData);
+      const event = await calendarStorage.updateCalendarEvent(req.params.id, validatedData);
       if (!event) {
         return res.status(404).json({ error: "Calendar event not found" });
       }
@@ -2295,17 +2514,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+
   app.delete("/api/calendar-events/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteCalendarEvent(req.params.id);
+      const { calendarStorage } = await getCalendarRepositories();
+      const deleted = await calendarStorage.deleteCalendarEvent(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Calendar event not found" });
       }
-      res.json({ success: true });
+      res.json({ success: true, message: "Calendar event deleted successfully" });
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
+
+
 
   // Community Routes
   app.get("/api/community/posts", async (req, res) => {
@@ -2400,6 +2624,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  async function getAdminRepositories() {
+    const repositories = await getStorageRepositories();
+    return {
+      userStorage: repositories.users,
+      memberStorage: repositories.members,
+      contractorStorage: repositories.contractors,
+      merchantStorage: repositories.merchants,
+      serviceRequestStorage: repositories.serviceRequests,
+      workOrderStorage: repositories.workOrders,
+      estimateStorage: repositories.estimates,
+      invoiceStorage: repositories.invoices,
+      dealStorage: repositories.deals,
+      messageStorage: repositories.messages,
+      calendarStorage: repositories.calendar,
+      badgeStorage: repositories.badges,
+      rankStorage: repositories.ranks,
+      achievementStorage: repositories.achievements,
+      maintenanceStorage: repositories.maintenance,
+    };
+  }
+
   // ==========================================
   // ADMIN ROUTES - Comprehensive Data Management
   // ==========================================
@@ -2407,26 +2652,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Counts API
   app.get("/api/admin/counts", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { achievementStorage, badgeStorage, calendarStorage, contractorStorage, dealStorage, estimateStorage, invoiceStorage, maintenanceStorage, memberStorage, merchantStorage, messageStorage, rankStorage, serviceRequestStorage, userStorage, workOrderStorage } = await getAdminRepositories();
       const [
         users, memberProfiles, contractorProfiles, merchantProfiles,
         serviceRequests, workOrders, estimates, invoices, deals, 
         messages, calendarEvents, badges, ranks, achievements, maintenanceItems
       ] = await Promise.all([
-        (await getStorage()).getAllUsers(),
-        (await getStorage()).getAllMemberProfiles(),
-        (await getStorage()).getAllContractorProfiles(),
-        (await getStorage()).getAllMerchantProfiles(),
-        (await getStorage()).getAllServiceRequests(),
-        (await getStorage()).getAllWorkOrders(),
-        (await getStorage()).getAllEstimates(),
-        (await getStorage()).getAllInvoices(),
-        (await getStorage()).getAllDeals(),
-        (await getStorage()).getAllMessages(),
-        (await getStorage()).getAllCalendarEvents(),
-        (await getStorage()).getAllBadges(),
-        (await getStorage()).getAllRanks(),
-        (await getStorage()).getAllAchievements(),
-        (await getStorage()).getAllMaintenanceItems()
+        userStorage.getAllUsers(),
+        memberStorage.getAllMemberProfiles(),
+        contractorStorage.getAllContractorProfiles(),
+        merchantStorage.getAllMerchantProfiles(),
+        serviceRequestStorage.getAllServiceRequests(),
+        workOrderStorage.getAllWorkOrders(),
+        estimateStorage.getAllEstimates(),
+        invoiceStorage.getAllInvoices(),
+        dealStorage.getAllDeals(),
+        messageStorage.getAllMessages(),
+        calendarStorage.getAllCalendarEvents(),
+        badgeStorage.getAllBadges(),
+        rankStorage.getAllRanks(),
+        achievementStorage.getAllAchievements(),
+        maintenanceStorage.getAllMaintenanceItems()
       ]);
 
       const counts = {
@@ -2456,7 +2702,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Users Management
   app.get("/api/admin/users", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const users = await (await getStorage()).getAllUsers();
+      const { userStorage } = await getAdminRepositories();
+      const users = await userStorage.getAllUsers();
       res.json(users);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2465,8 +2712,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/users", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { userStorage } = await getAdminRepositories();
       const validatedData = insertUserSchema.parse(req.body);
-      const user = await (await getStorage()).createUser(validatedData);
+      const user = await userStorage.createUser(validatedData);
       res.status(201).json(user);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2479,7 +2727,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Member Profiles Management
   app.get("/api/admin/memberProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const profiles = await (await getStorage()).getAllMemberProfiles();
+      const { memberStorage } = await getAdminRepositories();
+      const profiles = await memberStorage.getAllMemberProfiles();
       res.json(profiles);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2488,8 +2737,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/memberProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { memberStorage } = await getAdminRepositories();
       const validatedData = insertMemberProfileSchema.parse(req.body);
-      const profile = await (await getStorage()).createMemberProfile(validatedData);
+      const profile = await memberStorage.createMemberProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2501,8 +2751,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/memberProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { memberStorage } = await getAdminRepositories();
       const validatedData = insertMemberProfileSchema.partial().parse(req.body);
-      const profile = await (await getStorage()).updateMemberProfile(req.params.id, validatedData);
+      const profile = await memberStorage.updateMemberProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Member profile not found" });
       }
@@ -2518,7 +2769,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Contractor Profiles Management
   app.get("/api/admin/contractorProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const profiles = await (await getStorage()).getAllContractorProfiles();
+      const { contractorStorage } = await getAdminRepositories();
+      const profiles = await contractorStorage.getAllContractorProfiles();
       res.json(profiles);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2527,8 +2779,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/contractorProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { contractorStorage } = await getAdminRepositories();
       const validatedData = insertContractorProfileSchema.parse(req.body);
-      const profile = await (await getStorage()).createContractorProfile(validatedData);
+      const profile = await contractorStorage.createContractorProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2540,8 +2793,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/contractorProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { contractorStorage } = await getAdminRepositories();
       const validatedData = insertContractorProfileSchema.partial().parse(req.body);
-      const profile = await (await getStorage()).updateContractorProfile(req.params.id, validatedData);
+      const profile = await contractorStorage.updateContractorProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
@@ -2557,7 +2811,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Merchant Profiles Management
   app.get("/api/admin/merchantProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const profiles = await (await getStorage()).getAllMerchantProfiles();
+      const { merchantStorage } = await getAdminRepositories();
+      const profiles = await merchantStorage.getAllMerchantProfiles();
       res.json(profiles);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2566,8 +2821,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/merchantProfiles", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { merchantStorage } = await getAdminRepositories();
       const validatedData = insertMerchantProfileSchema.parse(req.body);
-      const profile = await (await getStorage()).createMerchantProfile(validatedData);
+      const profile = await merchantStorage.createMerchantProfile(validatedData);
       res.status(201).json(profile);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2579,8 +2835,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/merchantProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { merchantStorage } = await getAdminRepositories();
       const validatedData = insertMerchantProfileSchema.partial().parse(req.body);
-      const profile = await (await getStorage()).updateMerchantProfile(req.params.id, validatedData);
+      const profile = await merchantStorage.updateMerchantProfile(req.params.id, validatedData);
       if (!profile) {
         return res.status(404).json({ error: "Merchant profile not found" });
       }
@@ -2596,7 +2853,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Service Requests Management
   app.get("/api/admin/serviceRequests", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const requests = await (await getStorage()).getAllServiceRequests();
+      const { serviceRequestStorage } = await getAdminRepositories();
+      const requests = await serviceRequestStorage.getAllServiceRequests();
       res.json(requests);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2605,8 +2863,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/serviceRequests", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { serviceRequestStorage } = await getAdminRepositories();
       const validatedData = insertServiceRequestSchema.parse(req.body);
-      const request = await (await getStorage()).createServiceRequest(validatedData);
+      const request = await serviceRequestStorage.createServiceRequest(validatedData);
       res.status(201).json(request);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2618,8 +2877,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/serviceRequests/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { serviceRequestStorage } = await getAdminRepositories();
       const validatedData = insertServiceRequestSchema.partial().parse(req.body);
-      const request = await (await getStorage()).updateServiceRequest(req.params.id, validatedData);
+      const request = await serviceRequestStorage.updateServiceRequest(req.params.id, validatedData);
       if (!request) {
         return res.status(404).json({ error: "Service request not found" });
       }
@@ -2635,7 +2895,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Work Orders Management
   app.get("/api/admin/workOrders", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const orders = await (await getStorage()).getAllWorkOrders();
+      const { workOrderStorage } = await getAdminRepositories();
+      const orders = await workOrderStorage.getAllWorkOrders();
       res.json(orders);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2644,8 +2905,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/workOrders", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { workOrderStorage } = await getAdminRepositories();
       const validatedData = insertWorkOrderSchema.parse(req.body);
-      const workOrder = await (await getStorage()).createWorkOrder(validatedData);
+      const workOrder = await workOrderStorage.createWorkOrder(validatedData);
       res.status(201).json(workOrder);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2657,8 +2919,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/workOrders/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { workOrderStorage } = await getAdminRepositories();
       const validatedData = insertWorkOrderSchema.partial().parse(req.body);
-      const workOrder = await (await getStorage()).updateWorkOrder(req.params.id, validatedData);
+      const workOrder = await workOrderStorage.updateWorkOrder(req.params.id, validatedData);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
@@ -2674,7 +2937,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Estimates Management
   app.get("/api/admin/estimates", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const estimates = await (await getStorage()).getAllEstimates();
+      const { estimateStorage } = await getAdminRepositories();
+      const estimates = await estimateStorage.getAllEstimates();
       res.json(estimates);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2683,8 +2947,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/estimates", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { estimateStorage } = await getAdminRepositories();
       const validatedData = insertEstimateSchema.parse(req.body);
-      const estimate = await (await getStorage()).createEstimate(validatedData);
+      const estimate = await estimateStorage.createEstimate(validatedData);
       res.status(201).json(estimate);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2696,8 +2961,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/estimates/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { estimateStorage } = await getAdminRepositories();
       const validatedData = insertEstimateSchema.partial().parse(req.body);
-      const estimate = await (await getStorage()).updateEstimate(req.params.id, validatedData);
+      const estimate = await estimateStorage.updateEstimate(req.params.id, validatedData);
       if (!estimate) {
         return res.status(404).json({ error: "Estimate not found" });
       }
@@ -2713,7 +2979,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Invoices Management
   app.get("/api/admin/invoices", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const invoices = await (await getStorage()).getAllInvoices();
+      const { invoiceStorage } = await getAdminRepositories();
+      const invoices = await invoiceStorage.getAllInvoices();
       res.json(invoices);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2722,8 +2989,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/invoices", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { invoiceStorage } = await getAdminRepositories();
       const validatedData = insertInvoiceSchema.parse(req.body);
-      const invoice = await (await getStorage()).createInvoice(validatedData);
+      const invoice = await invoiceStorage.createInvoice(validatedData);
       res.status(201).json(invoice);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2735,8 +3003,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/invoices/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { invoiceStorage } = await getAdminRepositories();
       const validatedData = insertInvoiceSchema.partial().parse(req.body);
-      const invoice = await (await getStorage()).updateInvoice(req.params.id, validatedData);
+      const invoice = await invoiceStorage.updateInvoice(req.params.id, validatedData);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
       }
@@ -2752,7 +3021,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Deals Management
   app.get("/api/admin/deals", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deals = await (await getStorage()).getAllDeals();
+      const { dealStorage } = await getAdminRepositories();
+      const deals = await dealStorage.getAllDeals();
       res.json(deals);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2761,8 +3031,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/deals", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { dealStorage } = await getAdminRepositories();
       const validatedData = DealCreateSchema.parse(req.body);
-      const deal = await (await getStorage()).createDeal(validatedData);
+      const deal = await dealStorage.createDeal(validatedData);
       res.status(201).json(deal);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2774,8 +3045,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/deals/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { dealStorage } = await getAdminRepositories();
       const validatedData = DealUpdateSchema.parse(req.body);
-      const deal = await (await getStorage()).updateDeal(req.params.id, validatedData);
+      const deal = await dealStorage.updateDeal(req.params.id, validatedData);
       if (!deal) {
         return res.status(404).json({ error: "Deal not found" });
       }
@@ -2791,7 +3063,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Messages Management
   app.get("/api/admin/messages", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const messages = await (await getStorage()).getAllMessages();
+      const { messageStorage } = await getAdminRepositories();
+      const messages = await messageStorage.getAllMessages();
       res.json(messages);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2800,8 +3073,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/messages", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { messageStorage } = await getAdminRepositories();
       const validatedData = MessageCreateSchema.parse(req.body);
-      const message = await (await getStorage()).createMessage(validatedData);
+      const message = await messageStorage.createMessage(validatedData);
       res.status(201).json(message);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2813,10 +3087,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/messages/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { messageStorage } = await getAdminRepositories();
       // Note: Messages don't have a direct update method in storage, only markAsRead
       const { isRead } = req.body;
       if (typeof isRead === 'boolean' && isRead) {
-        const message = await (await getStorage()).markMessageAsRead(req.params.id);
+        const message = await messageStorage.markMessageAsRead(req.params.id);
         if (!message) {
           return res.status(404).json({ error: "Message not found" });
         }
@@ -2832,7 +3107,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Calendar Events Management
   app.get("/api/admin/calendarEvents", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const events = await (await getStorage()).getAllCalendarEvents();
+      const { calendarStorage } = await getAdminRepositories();
+      const events = await calendarStorage.getAllCalendarEvents();
       res.json(events);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -2841,8 +3117,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/calendarEvents", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { calendarStorage } = await getAdminRepositories();
       const validatedData = CalendarEventCreateSchema.parse(req.body);
-      const event = await (await getStorage()).createCalendarEvent(validatedData);
+      const event = await calendarStorage.createCalendarEvent(validatedData);
       res.status(201).json(event);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2854,8 +3131,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/calendarEvents/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { calendarStorage } = await getAdminRepositories();
       const validatedData = CalendarEventUpdateSchema.parse(req.body);
-      const event = await (await getStorage()).updateCalendarEvent(req.params.id, validatedData);
+      const event = await calendarStorage.updateCalendarEvent(req.params.id, validatedData);
       if (!event) {
         return res.status(404).json({ error: "Calendar event not found" });
       }
@@ -2870,7 +3148,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/calendarEvents/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteCalendarEvent(req.params.id);
+      const { calendarStorage } = await getAdminRepositories();
+      const deleted = await calendarStorage.deleteCalendarEvent(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Calendar event not found" });
       }
@@ -2883,7 +3162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE routes for all admin entities
   app.delete("/api/admin/users/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteUser(req.params.id);
+      const { userStorage } = await getAdminRepositories();
+      const deleted = await userStorage.deleteUser(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -2895,7 +3175,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/memberProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteMemberProfile(req.params.id);
+      const { memberStorage } = await getAdminRepositories();
+      const deleted = await memberStorage.deleteMemberProfile(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Member profile not found" });
       }
@@ -2907,7 +3188,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/contractorProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteContractorProfile(req.params.id);
+      const { contractorStorage } = await getAdminRepositories();
+      const deleted = await contractorStorage.deleteContractorProfile(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
@@ -2919,7 +3201,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/merchantProfiles/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteMerchantProfile(req.params.id);
+      const { merchantStorage } = await getAdminRepositories();
+      const deleted = await merchantStorage.deleteMerchantProfile(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Merchant profile not found" });
       }
@@ -2931,7 +3214,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/serviceRequests/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteServiceRequest(req.params.id);
+      const { serviceRequestStorage } = await getAdminRepositories();
+      const deleted = await serviceRequestStorage.deleteServiceRequest(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Service request not found" });
       }
@@ -2943,7 +3227,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/workOrders/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteWorkOrder(req.params.id);
+      const { workOrderStorage } = await getAdminRepositories();
+      const deleted = await workOrderStorage.deleteWorkOrder(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Work order not found" });
       }
@@ -2955,7 +3240,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/estimates/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteEstimate(req.params.id);
+      const { estimateStorage } = await getAdminRepositories();
+      const deleted = await estimateStorage.deleteEstimate(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Estimate not found" });
       }
@@ -2967,7 +3253,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/invoices/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteInvoice(req.params.id);
+      const { invoiceStorage } = await getAdminRepositories();
+      const deleted = await invoiceStorage.deleteInvoice(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Invoice not found" });
       }
@@ -2979,7 +3266,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/deals/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteDeal(req.params.id);
+      const { dealStorage } = await getAdminRepositories();
+      const deleted = await dealStorage.deleteDeal(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Deal not found" });
       }
@@ -2991,7 +3279,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/messages/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteMessage(req.params.id);
+      const { messageStorage } = await getAdminRepositories();
+      const deleted = await messageStorage.deleteMessage(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Message not found" });
       }
@@ -3006,7 +3295,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Badges Management
   app.get("/api/admin/badges", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const badges = await (await getStorage()).getAllBadges();
+      const { badgeStorage } = await getAdminRepositories();
+      const badges = await badgeStorage.getAllBadges();
       res.json(badges);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -3015,8 +3305,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/badges", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { badgeStorage } = await getAdminRepositories();
       const validatedData = insertBadgeSchema.parse(req.body);
-      const badge = await (await getStorage()).createBadge(validatedData);
+      const badge = await badgeStorage.createBadge(validatedData);
       res.status(201).json(badge);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -3028,8 +3319,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/badges/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { badgeStorage } = await getAdminRepositories();
       const validatedData = insertBadgeSchema.partial().parse(req.body);
-      const badge = await (await getStorage()).updateBadge(req.params.id, validatedData);
+      const badge = await badgeStorage.updateBadge(req.params.id, validatedData);
       if (!badge) {
         return res.status(404).json({ error: "Badge not found" });
       }
@@ -3044,7 +3336,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/badges/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteBadge(req.params.id);
+      const { badgeStorage } = await getAdminRepositories();
+      const deleted = await badgeStorage.deleteBadge(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Badge not found" });
       }
@@ -3057,7 +3350,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Ranks Management
   app.get("/api/admin/ranks", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const ranks = await (await getStorage()).getAllRanks();
+      const { rankStorage } = await getAdminRepositories();
+      const ranks = await rankStorage.getAllRanks();
       res.json(ranks);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -3066,8 +3360,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/ranks", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { rankStorage } = await getAdminRepositories();
       const validatedData = insertRankSchema.parse(req.body);
-      const rank = await (await getStorage()).createRank(validatedData);
+      const rank = await rankStorage.createRank(validatedData);
       res.status(201).json(rank);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -3079,8 +3374,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/ranks/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { rankStorage } = await getAdminRepositories();
       const validatedData = insertRankSchema.partial().parse(req.body);
-      const rank = await (await getStorage()).updateRank(req.params.id, validatedData);
+      const rank = await rankStorage.updateRank(req.params.id, validatedData);
       if (!rank) {
         return res.status(404).json({ error: "Rank not found" });
       }
@@ -3095,7 +3391,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/ranks/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteRank(req.params.id);
+      const { rankStorage } = await getAdminRepositories();
+      const deleted = await rankStorage.deleteRank(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Rank not found" });
       }
@@ -3108,7 +3405,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Achievements Management
   app.get("/api/admin/achievements", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const achievements = await (await getStorage()).getAllAchievements();
+      const { achievementStorage } = await getAdminRepositories();
+      const achievements = await achievementStorage.getAllAchievements();
       res.json(achievements);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -3117,8 +3415,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/achievements", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { achievementStorage } = await getAdminRepositories();
       const validatedData = insertAchievementSchema.parse(req.body);
-      const achievement = await (await getStorage()).createAchievement(validatedData);
+      const achievement = await achievementStorage.createAchievement(validatedData);
       res.status(201).json(achievement);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -3130,8 +3429,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/achievements/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { achievementStorage } = await getAdminRepositories();
       const validatedData = insertAchievementSchema.partial().parse(req.body);
-      const achievement = await (await getStorage()).updateAchievement(req.params.id, validatedData);
+      const achievement = await achievementStorage.updateAchievement(req.params.id, validatedData);
       if (!achievement) {
         return res.status(404).json({ error: "Achievement not found" });
       }
@@ -3146,7 +3446,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/achievements/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteAchievement(req.params.id);
+      const { achievementStorage } = await getAdminRepositories();
+      const deleted = await achievementStorage.deleteAchievement(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Achievement not found" });
       }
@@ -3159,7 +3460,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Maintenance Items Management
   app.get("/api/admin/maintenanceItems", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const items = await (await getStorage()).getAllMaintenanceItems();
+      const { maintenanceStorage } = await getAdminRepositories();
+      const items = await maintenanceStorage.getAllMaintenanceItems();
       res.json(items);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
@@ -3168,8 +3470,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/maintenanceItems", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { maintenanceStorage } = await getAdminRepositories();
       const validatedData = insertMaintenanceItemSchema.parse(req.body);
-      const item = await (await getStorage()).createMaintenanceItem(validatedData);
+      const item = await maintenanceStorage.createMaintenanceItem(validatedData);
       res.status(201).json(item);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -3181,8 +3484,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/maintenanceItems/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const { maintenanceStorage } = await getAdminRepositories();
       const validatedData = insertMaintenanceItemSchema.partial().parse(req.body);
-      const item = await (await getStorage()).updateMaintenanceItem(req.params.id, validatedData);
+      const item = await maintenanceStorage.updateMaintenanceItem(req.params.id, validatedData);
       if (!item) {
         return res.status(404).json({ error: "Maintenance item not found" });
       }
@@ -3197,7 +3501,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/maintenanceItems/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const deleted = await (await getStorage()).deleteMaintenanceItem(req.params.id);
+      const { maintenanceStorage } = await getAdminRepositories();
+      const deleted = await maintenanceStorage.deleteMaintenanceItem(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Maintenance item not found" });
       }
@@ -3373,9 +3678,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SCHEDULING SYSTEM ENDPOINTS
   // ===========================
 
+  async function getSchedulingRepositories() {
+    const {
+      users,
+      contractors,
+      workOrders,
+      invoices,
+      schedulingSlots,
+      schedulingWorkOrders,
+      schedulingConflicts,
+      schedulingAudit
+    } = await getStorageRepositories();
+
+    return {
+      userStorage: users,
+      contractorStorage: contractors,
+      workOrderStorage: workOrders,
+      invoiceStorage: invoices,
+      slotStorage: schedulingSlots,
+      workOrderScheduleStorage: schedulingWorkOrders,
+      conflictStorage: schedulingConflicts,
+      auditStorage: schedulingAudit,
+    };
+  }
+
   // Get contractor availability
   app.get("/api/contractors/:id/availability", isAuthenticated, async (req: any, res) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const { id: contractorId } = req.params;
       const { startDate, endDate, slotDuration, slotType, timezone } = req.query;
 
@@ -3385,13 +3715,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if contractor exists
-      const contractor = await (await getStorage()).getContractorProfile(contractorId);
+      const contractor = await schedulingRepos.contractorStorage.getContractorProfile(contractorId);
       if (!contractor) {
         return res.status(404).json({ error: "Contractor not found" });
       }
 
       // Check access permissions
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -3436,6 +3766,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Check for scheduling conflicts
   app.get("/api/schedules/conflicts", isAuthenticated, async (req: any, res) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const { contractorId, startTime, endTime } = req.query;
 
       if (!contractorId || !startTime || !endTime) {
@@ -3445,12 +3776,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check access permissions
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const contractor = await (await getStorage()).getContractorProfile(contractorId as string);
+      const contractor = await schedulingRepos.contractorStorage.getContractorProfile(contractorId as string);
       if (!contractor) {
         return res.status(404).json({ error: "Contractor not found" });
       }
@@ -3493,7 +3824,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced work order creation with scheduling
   app.post("/api/work-orders/scheduled", isAuthenticated, csrfProtection, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const schedulingRepos = await getSchedulingRepositories();
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -3570,7 +3902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         adminOverrideBy: adminOverride ? currentUser.id : null
       };
 
-      const workOrder = await (await getStorage()).createWorkOrder(workOrderData);
+      const workOrder = await schedulingRepos.workOrderStorage.createWorkOrder(workOrderData);
 
       // If admin override was used, handle the override process
       if (adminOverride && currentUser.role === "admin") {
@@ -3616,7 +3948,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin schedule override endpoint
   app.post("/api/admin/schedule-override", isAuthenticated, csrfProtection, requireRole(["admin"]), async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const schedulingRepos = await getSchedulingRepositories();
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -3642,7 +3975,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verify work order exists
-      const workOrder = await (await getStorage()).getWorkOrder(workOrderId);
+      const workOrder = await schedulingRepos.workOrderStorage.getWorkOrder(workOrderId);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
@@ -3669,7 +4002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await schedulingService.handleAdminOverride(adminOverrideRequest);
 
       // Update the work order to reflect the override
-      await (await getStorage()).updateWorkOrder(workOrderId, {
+      await schedulingRepos.workOrderStorage.updateWorkOrder(workOrderId, {
         scheduledStartDate: new Date(startTime),
         scheduledEndDate: new Date(endTime),
         hasSchedulingConflicts: true,
@@ -3702,15 +4035,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get schedule conflicts for a contractor
   app.get("/api/contractors/:id/conflicts", isAuthenticated, async (req: any, res) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const { id: contractorId } = req.params;
       const { includeResolved = "false" } = req.query;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const contractor = await (await getStorage()).getContractorProfile(contractorId);
+      const contractor = await schedulingRepos.contractorStorage.getContractorProfile(contractorId);
       if (!contractor) {
         return res.status(404).json({ error: "Contractor not found" });
       }
@@ -3723,7 +4057,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const conflicts = await (await getStorage()).getScheduleConflictsByContractor(
+      const conflicts = await schedulingRepos.conflictStorage.getScheduleConflictsByContractor(
         contractorId, 
         includeResolved === "true"
       );
@@ -3746,6 +4080,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Resolve a schedule conflict
   app.patch("/api/conflicts/:id/resolve", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const { id: conflictId } = req.params;
       const { resolutionNotes } = req.body;
 
@@ -3755,25 +4090,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const conflict = await (await getStorage()).getScheduleConflict(conflictId);
+      const conflict = await schedulingRepos.conflictStorage.getScheduleConflict(conflictId);
       if (!conflict) {
         return res.status(404).json({ error: "Conflict not found" });
       }
 
       // Check permissions - contractor can resolve their own conflicts, admin can resolve any
       if (currentUser.role !== "admin") {
-        const contractor = await (await getStorage()).getContractorProfile(conflict.contractorId);
+        const contractor = await schedulingRepos.contractorStorage.getContractorProfile(conflict.contractorId);
         if (!contractor || contractor.userId !== currentUser.id) {
           return res.status(403).json({ error: "Access denied" });
         }
       }
 
-      const resolvedConflict = await (await getStorage()).resolveScheduleConflict(
+      const resolvedConflict = await schedulingRepos.conflictStorage.resolveScheduleConflict(
         conflictId,
         currentUser.id,
         resolutionNotes.trim()
@@ -3801,6 +4136,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // FORUM SYSTEM ENDPOINTS
   // ======================================================================
 
+  async function getForumRepositories() {
+    const {
+      users,
+      members,
+      forums,
+      forumTopics,
+      forumPosts,
+      forumVotes,
+      forumAnalytics,
+      forumModeration
+    } = await getStorageRepositories();
+
+    return {
+      userStorage: users,
+      memberStorage: members,
+      forumStorage: forums,
+      topicStorage: forumTopics,
+      postStorage: forumPosts,
+      voteStorage: forumVotes,
+      analyticsStorage: forumAnalytics,
+      moderationStorage: forumModeration,
+    };
+  }
+
   // Helper function to check forum access permissions
   async function checkForumAccess(forum: Forum, user: any): Promise<boolean> {
     if (!forum.isPrivate) return true;
@@ -3809,7 +4168,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // Check membership tier requirements
     if (forum.membershipRequired) {
-      const memberProfile = await (await getStorage()).getMemberProfile(user.id);
+      const { memberStorage } = await getForumRepositories();
+      const memberProfile = await memberStorage.getMemberProfile(user.id);
       if (!memberProfile) return false;
       
       const tierHierarchy = ["HomeHUB", "HomePRO", "HomeHERO", "HomeGURU"];
@@ -3837,7 +4197,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/forums - List all accessible forums
   app.get("/api/forums", isAuthenticated, async (req: any, res) => {
     try {
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const { users: userStorage } = await getStorageRepositories();
+      const currentUser = await userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -3850,7 +4211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         search 
       } = req.query;
 
-      const forums = await (await getStorage()).getForums({
+      const forums = await forumRepos.forumStorage.getForums({
         forumType: type,
         communityGroupId,
         limit: parseInt(limit),
@@ -3882,13 +4243,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/forums/:id - Get forum details
   app.get("/api/forums/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { id } = req.params;
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).getForum(id);
+      const forum = await forumRepos.forumStorage.getForum(id);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -3908,6 +4270,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/forums - Create new forum (admin only)
   app.post("/api/forums", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const validation = ForumCreateSchema.safeParse(req.body);
       if (!validation.success) {
         return res.status(400).json({
@@ -3916,12 +4279,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).createForum({
+      const forum = await forumRepos.forumStorage.createForum({
         ...validation.data,
         createdBy: currentUser.id
       });
@@ -3936,6 +4299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PUT /api/forums/:id - Update forum (admin only)
   app.put("/api/forums/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { id } = req.params;
       const validation = ForumUpdateSchema.safeParse(req.body);
       if (!validation.success) {
@@ -3945,12 +4309,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const forum = await (await getStorage()).getForum(id);
+      const forum = await forumRepos.forumStorage.getForum(id);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
 
-      const updatedForum = await (await getStorage()).updateForum(id, validation.data);
+      const updatedForum = await forumRepos.forumStorage.updateForum(id, validation.data);
       res.json(updatedForum);
     } catch (error: any) {
       console.error("Error updating forum:", error);
@@ -3961,14 +4325,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE /api/forums/:id - Delete forum (admin only)
   app.delete("/api/forums/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { id } = req.params;
       
-      const forum = await (await getStorage()).getForum(id);
+      const forum = await forumRepos.forumStorage.getForum(id);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
 
-      await (await getStorage()).deleteForum(id);
+      await forumRepos.forumStorage.deleteForum(id);
       res.json({ message: "Forum deleted successfully" });
     } catch (error: any) {
       console.error("Error deleting forum:", error);
@@ -3979,6 +4344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/forums/:forumId/topics - List topics in a forum
   app.get("/api/forums/:forumId/topics", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId } = req.params;
       const { 
         limit = "20", 
@@ -3989,12 +4355,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         search
       } = req.query;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4004,7 +4370,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const topics = await (await getStorage()).getForumTopics({
+      const topics = await forumRepos.topicStorage.getForumTopics({
         forumId,
         limit: parseInt(limit),
         offset: parseInt(offset),
@@ -4037,15 +4403,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/forums/:forumId/topics/:topicId - Get topic details with posts
   app.get("/api/forums/:forumId/topics/:topicId", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId } = req.params;
       const { limit = "50", offset = "0", sort = "oldest" } = req.query;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4056,8 +4423,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Support slug-based lookup
-      const topic = await (await getStorage()).getForumTopic(topicId) || 
-                   await (await getStorage()).getForumTopicBySlug(forumId, topicId);
+      const topic = await forumRepos.topicStorage.getForumTopic(topicId) || 
+                   await forumRepos.topicStorage.getForumTopicBySlug(forumId, topicId);
       
       if (!topic) {
         return res.status(404).json({ error: "Topic not found" });
@@ -4068,7 +4435,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get posts with threading and vote counts
-      const posts = await (await getStorage()).getForumPosts({
+      const posts = await forumRepos.postStorage.getForumPosts({
         topicId: topic.id,
         limit: parseInt(limit),
         offset: parseInt(offset),
@@ -4078,7 +4445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Update view count
-      await (await getStorage()).updateForumTopic(topic.id, {
+      await forumRepos.topicStorage.updateForumTopic(topic.id, {
         viewCount: topic.viewCount + 1,
         lastActivityAt: new Date()
       });
@@ -4105,6 +4472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/forums/:forumId/topics - Create new topic
   app.post("/api/forums/:forumId/topics", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId } = req.params;
       const validation = ForumTopicCreateSchema.safeParse({
         ...req.body,
@@ -4118,12 +4486,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4141,14 +4509,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { initialPostContent, ...topicData } = validation.data;
 
       // Create topic and initial post in transaction
-      const topic = await (await getStorage()).createForumTopic({
+      const topic = await forumRepos.topicStorage.createForumTopic({
         ...topicData,
         authorId: currentUser.id,
         slug: topicData.slug || topicData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
       });
 
       // Create initial post
-      await (await getStorage()).createForumPost({
+      await forumRepos.postStorage.createForumPost({
         topicId: topic.id,
         forumId,
         authorId: currentUser.id,
@@ -4157,7 +4525,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Update forum stats
-      await (await getStorage()).updateForum(forumId, {
+      await forumRepos.forumStorage.updateForum(forumId, {
         topicCount: forum.topicCount + 1,
         postCount: forum.postCount + 1,
         lastActivityAt: new Date(),
@@ -4174,6 +4542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PUT /api/forums/:forumId/topics/:topicId - Update topic
   app.put("/api/forums/:forumId/topics/:topicId", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId } = req.params;
       const validation = ForumTopicUpdateSchema.safeParse(req.body);
       
@@ -4184,17 +4553,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const topic = await (await getStorage()).getForumTopic(topicId);
+      const topic = await forumRepos.topicStorage.getForumTopic(topicId);
       if (!topic || topic.forumId !== forumId) {
         return res.status(404).json({ error: "Topic not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4207,7 +4576,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const updatedTopic = await (await getStorage()).updateForumTopic(topicId, validation.data);
+      const updatedTopic = await forumRepos.topicStorage.updateForumTopic(topicId, validation.data);
       res.json(updatedTopic);
     } catch (error: any) {
       console.error("Error updating topic:", error);
@@ -4218,19 +4587,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE /api/forums/:forumId/topics/:topicId - Delete topic
   app.delete("/api/forums/:forumId/topics/:topicId", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId } = req.params;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const topic = await (await getStorage()).getForumTopic(topicId);
+      const topic = await forumRepos.topicStorage.getForumTopic(topicId);
       if (!topic || topic.forumId !== forumId) {
         return res.status(404).json({ error: "Topic not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4243,10 +4613,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      await (await getStorage()).deleteForumTopic(topicId);
+      await forumRepos.topicStorage.deleteForumTopic(topicId);
       
       // Update forum stats
-      await (await getStorage()).updateForum(forumId, {
+      await forumRepos.forumStorage.updateForum(forumId, {
         topicCount: Math.max(0, forum.topicCount - 1),
         postCount: Math.max(0, forum.postCount - topic.postCount)
       });
@@ -4261,6 +4631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/forums/:forumId/topics/:topicId/posts - Get posts in topic
   app.get("/api/forums/:forumId/topics/:topicId/posts", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId } = req.params;
       const { 
         limit = "50", 
@@ -4269,12 +4640,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         includeDeleted = "false"
       } = req.query;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4284,12 +4655,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const topic = await (await getStorage()).getForumTopic(topicId);
+      const topic = await forumRepos.topicStorage.getForumTopic(topicId);
       if (!topic || topic.forumId !== forumId) {
         return res.status(404).json({ error: "Topic not found" });
       }
 
-      const posts = await (await getStorage()).getForumPosts({
+      const posts = await forumRepos.postStorage.getForumPosts({
         topicId,
         limit: parseInt(limit),
         offset: parseInt(offset),
@@ -4320,6 +4691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/forums/:forumId/topics/:topicId/posts - Create new post/reply
   app.post("/api/forums/:forumId/topics/:topicId/posts", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId } = req.params;
       const validation = ForumPostCreateSchema.safeParse({
         ...req.body,
@@ -4334,12 +4706,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4349,7 +4721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const topic = await (await getStorage()).getForumTopic(topicId);
+      const topic = await forumRepos.topicStorage.getForumTopic(topicId);
       if (!topic || topic.forumId !== forumId) {
         return res.status(404).json({ error: "Topic not found" });
       }
@@ -4359,19 +4731,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Topic is locked" });
       }
 
-      const post = await (await getStorage()).createForumPost({
+      const post = await forumRepos.postStorage.createForumPost({
         ...validation.data,
         authorId: currentUser.id
       });
 
       // Update topic and forum stats
-      await (await getStorage()).updateForumTopic(topicId, {
+      await forumRepos.topicStorage.updateForumTopic(topicId, {
         postCount: topic.postCount + 1,
         lastActivityAt: new Date(),
         lastPostId: post.id
       });
 
-      await (await getStorage()).updateForum(forumId, {
+      await forumRepos.forumStorage.updateForum(forumId, {
         postCount: forum.postCount + 1,
         lastActivityAt: new Date()
       });
@@ -4386,6 +4758,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PUT /api/forums/:forumId/topics/:topicId/posts/:postId - Update post
   app.put("/api/forums/:forumId/topics/:topicId/posts/:postId", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId, postId } = req.params;
       const validation = ForumPostUpdateSchema.safeParse(req.body);
       
@@ -4396,17 +4769,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const post = await (await getStorage()).getForumPost(postId);
+      const post = await forumRepos.postStorage.getForumPost(postId);
       if (!post || post.topicId !== topicId || post.forumId !== forumId) {
         return res.status(404).json({ error: "Post not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4425,7 +4798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         editedAt: new Date()
       };
 
-      const updatedPost = await (await getStorage()).updateForumPost(postId, updateData);
+      const updatedPost = await forumRepos.postStorage.updateForumPost(postId, updateData);
       res.json(updatedPost);
     } catch (error: any) {
       console.error("Error updating post:", error);
@@ -4436,19 +4809,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE /api/forums/:forumId/topics/:topicId/posts/:postId - Delete post
   app.delete("/api/forums/:forumId/topics/:topicId/posts/:postId", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId, postId } = req.params;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const post = await (await getStorage()).getForumPost(postId);
+      const post = await forumRepos.postStorage.getForumPost(postId);
       if (!post || post.topicId !== topicId || post.forumId !== forumId) {
         return res.status(404).json({ error: "Post not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4463,17 +4837,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Soft delete for initial posts, hard delete for replies
       if (post.postType === 'initial') {
-        await (await getStorage()).updateForumPost(postId, { 
+        await forumRepos.postStorage.updateForumPost(postId, { 
           status: 'deleted',
           content: '[Post deleted by author]'
         });
       } else {
-        await (await getStorage()).deleteForumPost(postId);
+        await forumRepos.postStorage.deleteForumPost(postId);
         
         // Update topic stats
-        const topic = await (await getStorage()).getForumTopic(topicId);
+        const topic = await forumRepos.topicStorage.getForumTopic(topicId);
         if (topic) {
-          await (await getStorage()).updateForumTopic(topicId, {
+          await forumRepos.topicStorage.updateForumTopic(topicId, {
             postCount: Math.max(1, topic.postCount - 1) // Keep at least 1 for initial post
           });
         }
@@ -4489,6 +4863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/forums/posts/:postId/vote - Vote on post
   app.post("/api/forums/posts/:postId/vote", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { postId } = req.params;
       const validation = ForumVoteCreateSchema.safeParse({
         ...req.body,
@@ -4502,12 +4877,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const post = await (await getStorage()).getForumPost(postId);
+      const post = await forumRepos.postStorage.getForumPost(postId);
       if (!post) {
         return res.status(404).json({ error: "Post not found" });
       }
@@ -4517,7 +4892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Cannot vote on your own post" });
       }
 
-      const forum = await (await getStorage()).getForum(post.forumId);
+      const forum = await forumRepos.forumStorage.getForum(post.forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4528,18 +4903,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create or update vote
-      const existingVote = await (await getStorage()).getPostVote(postId, currentUser.id);
+      const existingVote = await forumRepos.voteStorage.getPostVote(postId, currentUser.id);
       
       if (existingVote) {
         if (existingVote.voteType === validation.data.voteType) {
           return res.status(400).json({ error: "Already voted with this type" });
         }
         // Update existing vote
-        const updatedVote = await (await getStorage()).updatePostVote(existingVote.id, validation.data);
+        const updatedVote = await forumRepos.voteStorage.updatePostVote(existingVote.id, validation.data);
         res.json(updatedVote);
       } else {
         // Create new vote
-        const vote = await (await getStorage()).createPostVote({
+        const vote = await forumRepos.voteStorage.createPostVote({
           ...validation.data,
           userId: currentUser.id
         });
@@ -4547,11 +4922,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update post vote counts
-      const votes = await (await getStorage()).getPostVotes(postId);
+      const votes = await forumRepos.voteStorage.getPostVotes(postId);
       const upvotes = votes.filter(v => v.voteType === 'up').length;
       const downvotes = votes.filter(v => v.voteType === 'down').length;
       
-      await (await getStorage()).updateForumPost(postId, {
+      await forumRepos.postStorage.updateForumPost(postId, {
         upvotes,
         downvotes,
         score: upvotes - downvotes
@@ -4566,31 +4941,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE /api/forums/posts/:postId/vote - Remove vote
   app.delete("/api/forums/posts/:postId/vote", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { postId } = req.params;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const post = await (await getStorage()).getForumPost(postId);
+      const post = await forumRepos.postStorage.getForumPost(postId);
       if (!post) {
         return res.status(404).json({ error: "Post not found" });
       }
 
-      const existingVote = await (await getStorage()).getPostVote(postId, currentUser.id);
+      const existingVote = await forumRepos.voteStorage.getPostVote(postId, currentUser.id);
       if (!existingVote) {
         return res.status(404).json({ error: "No vote found" });
       }
 
-      await (await getStorage()).deletePostVote(existingVote.id);
+      await forumRepos.voteStorage.removePostVote(postId, currentUser.id);
 
       // Update post vote counts
-      const votes = await (await getStorage()).getPostVotes(postId);
+      const votes = await forumRepos.voteStorage.getPostVotes(postId);
       const upvotes = votes.filter(v => v.voteType === 'up').length;
       const downvotes = votes.filter(v => v.voteType === 'down').length;
       
-      await (await getStorage()).updateForumPost(postId, {
+      await forumRepos.postStorage.updateForumPost(postId, {
         upvotes,
         downvotes,
         score: upvotes - downvotes
@@ -4606,14 +4982,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/forums/:forumId/topics/:topicId/posts/:postId/accept - Accept answer (Q&A forums)
   app.post("/api/forums/:forumId/topics/:topicId/posts/:postId/accept", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { forumId, topicId, postId } = req.params;
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const forum = await (await getStorage()).getForum(forumId);
+      const forum = await forumRepos.forumStorage.getForum(forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4622,7 +4999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Can only accept answers in Q&A forums" });
       }
 
-      const topic = await (await getStorage()).getForumTopic(topicId);
+      const topic = await forumRepos.topicStorage.getForumTopic(topicId);
       if (!topic || topic.forumId !== forumId) {
         return res.status(404).json({ error: "Topic not found" });
       }
@@ -4632,7 +5009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Only topic author can accept answers" });
       }
 
-      const post = await (await getStorage()).getForumPost(postId);
+      const post = await forumRepos.postStorage.getForumPost(postId);
       if (!post || post.topicId !== topicId) {
         return res.status(404).json({ error: "Post not found" });
       }
@@ -4643,7 +5020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Remove previous accepted answer
       if (topic.acceptedAnswerId) {
-        await (await getStorage()).updateForumPost(topic.acceptedAnswerId, {
+        await forumRepos.postStorage.updateForumPost(topic.acceptedAnswerId, {
           isAcceptedAnswer: false,
           acceptedAt: null,
           acceptedBy: null
@@ -4651,14 +5028,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Accept this answer
-      await (await getStorage()).updateForumPost(postId, {
+      await forumRepos.postStorage.updateForumPost(postId, {
         isAcceptedAnswer: true,
         acceptedAt: new Date(),
         acceptedBy: currentUser.id
       });
 
       // Mark topic as solved
-      await (await getStorage()).updateForumTopic(topicId, {
+      await forumRepos.topicStorage.updateForumTopic(topicId, {
         status: 'solved',
         isSolved: true,
         acceptedAnswerId: postId
@@ -4674,6 +5051,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/forums/posts/:postId/flag - Flag post for moderation
   app.post("/api/forums/posts/:postId/flag", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { postId } = req.params;
       const validation = ForumFlagSchema.safeParse({
         ...req.body,
@@ -4687,24 +5065,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const post = await (await getStorage()).getForumPost(postId);
+      const post = await forumRepos.postStorage.getForumPost(postId);
       if (!post) {
         return res.status(404).json({ error: "Post not found" });
       }
 
       // Create flag/report
-      await (await getStorage()).createPostFlag({
-        ...validation.data,
-        reporterId: currentUser.id
-      });
+      await forumRepos.moderationStorage.flagPost(postId, currentUser.id, validation.data.reason);
 
       // Update post status to flagged
-      await (await getStorage()).updateForumPost(postId, {
+      await forumRepos.postStorage.updateForumPost(postId, {
         status: 'flagged'
       });
 
@@ -4718,6 +5093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/forums/posts/:postId/moderate - Moderate post (admin/moderator only)
   app.post("/api/forums/posts/:postId/moderate", isAuthenticated, async (req: any, res) => {
     try {
+      const forumRepos = await getForumRepositories();
       const { postId } = req.params;
       const validation = ForumModerationSchema.safeParse({
         ...req.body,
@@ -4731,17 +5107,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await forumRepos.userStorage.getUser(req.user.claims.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
 
-      const post = await (await getStorage()).getForumPost(postId);
+      const post = await forumRepos.postStorage.getForumPost(postId);
       if (!post) {
         return res.status(404).json({ error: "Post not found" });
       }
 
-      const forum = await (await getStorage()).getForum(post.forumId);
+      const forum = await forumRepos.forumStorage.getForum(post.forumId);
       if (!forum) {
         return res.status(404).json({ error: "Forum not found" });
       }
@@ -4750,7 +5126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      await (await getStorage()).updateForumPost(postId, {
+      await forumRepos.postStorage.updateForumPost(postId, {
         status: validation.data.status,
         moderatedBy: currentUser.id,
         moderatedAt: new Date(),
@@ -4771,11 +5147,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Confirm a tentative appointment into a scheduled work order (enforces blackout, capacity, and DB-level no-overlap)
   app.post('/api/appointments/:id/confirm', isAuthenticated, requireRole(['admin','manager']), async (req, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const id = Number(req.params.id);
       const { homeManagerId, start, end } = req.body as { homeManagerId: number; start: string; end: string };
       
       // Update work order with scheduling details
-      await (await getStorage()).updateWorkOrder(id, {
+      await schedulingRepos.workOrderStorage.updateWorkOrder(id, {
         homeManagerId,
         scheduledStartDate: new Date(start),
         scheduledEndDate: new Date(end),
@@ -4789,15 +5166,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Reschedule with 48h policy
   app.post('/api/appointments/:id/reschedule', isAuthenticated, async (req, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const id = Number(req.params.id);
       const { start, end } = req.body as { start: string; end: string };
 
-      const workOrders = await (await getStorage()).getWorkOrders();
+      const workOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
       const wo = workOrders.find(wo => wo.id === id);
       if (!wo) return res.status(404).json({ error: 'Not found' });
 
       const hrsUntil = wo.scheduledStartDate ? (wo.scheduledStartDate.getTime() - Date.now()) / 36e5 : 0;
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
       if (hrsUntil < 48 && !isPrivileged) {
@@ -4805,7 +5183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update work order with new schedule
-      await (await getStorage()).updateWorkOrder(id, {
+      await schedulingRepos.workOrderStorage.updateWorkOrder(id, {
         scheduledStartDate: new Date(start),
         scheduledEndDate: new Date(end),
         homeManagerId: wo.homeManagerId
@@ -4818,19 +5196,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Cancel with 48h policy
   app.post('/api/appointments/:id/cancel', isAuthenticated, async (req: any, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const id = Number(req.params.id);
-      const workOrders = await (await getStorage()).getWorkOrders();
+      const workOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
       const wo = workOrders.find(wo => wo.id === id);
       if (!wo) return res.status(404).json({ error: 'Not found' });
 
       const hrsUntil = wo.scheduledStartDate ? (wo.scheduledStartDate.getTime() - Date.now()) / 36e5 : 0;
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
       const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
       if (hrsUntil < 48 && !isPrivileged) {
         return res.status(403).json({ error: 'Cancel requires approval inside 48 hours' });
       }
 
-      await (await getStorage()).updateWorkOrder(id, { status: 'cancelled' });
+      await schedulingRepos.workOrderStorage.updateWorkOrder(id, { status: 'cancelled' });
       res.json({ ok: true });
     } catch (err) { next(err); }
   });
@@ -4842,11 +5221,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Manager: today's schedule + capacity snapshot
   app.get('/api/ops/manager/today', isAuthenticated, requireRole(['manager','admin']), async (req: any, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const managerId = req.user.role === 'manager' ? req.user.id : Number(req.query.managerId);
       const start = new Date(); start.setUTCHours(0,0,0,0);
       const end = new Date();   end.setUTCHours(23,59,59,999);
 
-      const allWorkOrders = await (await getStorage()).getWorkOrders();
+      const allWorkOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
       const jobs = allWorkOrders.filter(wo => 
         wo.homeManagerId === managerId &&
         wo.scheduledStartDate &&
@@ -4866,11 +5246,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Technician: my jobs today (assuming technician is also the homeManager or linked)
   app.get('/api/ops/tech/today', isAuthenticated, requireRole(['technician','manager','admin']), async (req: any, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const techId = req.user.id;
       const start = new Date(); start.setUTCHours(0,0,0,0);
       const end = new Date();   end.setUTCHours(23,59,59,999);
 
-      const allWorkOrders = await (await getStorage()).getWorkOrders();
+      const allWorkOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
       const jobs = allWorkOrders.filter(wo => 
         wo.assignedTechnicianId === techId &&
         wo.scheduledStartDate &&
@@ -4889,9 +5270,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/work-orders/:id/check-in', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const id = Number(req.params.id);
       const { lat, lng } = req.body as { lat?: number; lng?: number };
-      await (await getStorage()).updateWorkOrder(id, {
+      await schedulingRepos.workOrderStorage.updateWorkOrder(id, {
         checkInAt: new Date(),
         checkInLat: lat,
         checkInLng: lng,
@@ -4903,9 +5285,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/work-orders/:id/check-out', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const id = Number(req.params.id);
       const { notes, beforePhotos, afterPhotos, extraChargesCents, lineItems, memberSignatureUrl } = req.body as any;
-      await (await getStorage()).updateWorkOrder(id, {
+      await schedulingRepos.workOrderStorage.updateWorkOrder(id, {
         checkOutAt: new Date(),
         technicianNotes: notes,
         beforePhotos,
@@ -4921,17 +5304,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Complete and auto-generate invoice (+ PDF)
   app.post('/api/work-orders/:id/complete', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
     try {
+      const schedulingRepos = await getSchedulingRepositories();
       const id = Number(req.params.id);
 
       // mark complete
-      await (await getStorage()).updateWorkOrder(id, { status: 'complete' });
+      await schedulingRepos.workOrderStorage.updateWorkOrder(id, { status: 'complete' });
 
       // create invoice if missing
-      const invoices = await (await getStorage()).getInvoices();
+      const invoices = await schedulingRepos.invoiceStorage.getInvoices();
       let inv = invoices.find(invoice => invoice.workOrderId === id);
       
       if (!inv) {
-        inv = await (await getStorage()).createInvoice({
+        inv = await schedulingRepos.invoiceStorage.createInvoice({
           workOrderId: id,
           memberId: req.body.memberId, // or derive from work order
           status: 'sent',
@@ -4972,10 +5356,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/admin/manager-blocks', isAuthenticated, requireRole(['admin','manager']), async (req: any, res, next) => {
     try {
+      const { users: userStorage } = await getStorageRepositories();
       const { homeManagerId, blockType, startAt, endAt, reason } = req.body;
-      const currentUser = await (await getStorage()).getUser(req.user.claims.sub);
+      const currentUser = await userStorage.getUser(req.user.claims.sub);
       
-      const block = await (await getStorage()).createManagerTimeBlock({
+      const storage = await getStorage();
+      const block = await storage.createManagerTimeBlock({
         homeManagerId,
         blockType,
         startAt: new Date(startAt),
@@ -4991,3 +5377,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
+
+

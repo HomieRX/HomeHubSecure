@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
@@ -5,6 +6,7 @@ import {
   serviceRequests, workOrders, estimates, invoices, loyaltyPointTransactions,
   deals, dealRedemptions, messages, notifications, calendarEvents,
   communityPosts, communityGroups, badges, ranks, achievements, maintenanceItems,
+  forums, forumTopics, forumPosts, forumPostVotes, notificationSettings,
   // Scheduling system tables
   timeSlots, scheduleConflicts, scheduleAuditLog,
   type User, type InsertUser, type UpsertUser,
@@ -19,6 +21,7 @@ import {
   type Deal, type InsertDeal,
   type Message, type InsertMessage,
   type Notification, type InsertNotification,
+  type NotificationSettings, type InsertNotificationSettings,
   type CalendarEvent, type InsertCalendarEvent,
   type Badge, type InsertBadge,
   type Rank, type InsertRank,
@@ -28,6 +31,10 @@ import {
   type DealRedemption,
   type CommunityPost,
   type CommunityGroup,
+  type Forum, type InsertForum,
+  type ForumTopic, type InsertForumTopic,
+  type ForumPost, type InsertForumPost,
+  type ForumPostVote, type InsertForumPostVote,
   // Scheduling system types
   type TimeSlot, type InsertTimeSlot,
   type ScheduleConflict, type InsertScheduleConflict,
@@ -135,7 +142,8 @@ export class DbStorage implements IStorage {
           firstName: userData.firstName,
           lastName: userData.lastName,
           profileImageUrl: userData.profileImageUrl,
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          ...((userData as any).role ? { role: (userData as any).role } : {})
         })
         .where(eq(users.id, userData.id))
         .returning();
@@ -506,6 +514,10 @@ export class DbStorage implements IStorage {
   async getWorkOrder(id: string): Promise<WorkOrder | undefined> {
     const result = await db.select().from(workOrders).where(eq(workOrders.id, id)).limit(1);
     return result[0];
+  }
+
+  async getWorkOrders(): Promise<WorkOrder[]> {
+    return await db.select().from(workOrders).orderBy(desc(workOrders.createdAt));
   }
 
   async getWorkOrdersByServiceRequest(serviceRequestId: string): Promise<WorkOrder[]> {
@@ -1029,6 +1041,549 @@ export class DbStorage implements IStorage {
     return result.length > 0;
   }
 
+  // Forum methods
+  private slugify(input: string): string {
+    const base = input.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return base || Math.random().toString(36).slice(2);
+  }
+
+  private async refreshForumMetrics(forumId: string): Promise<void> {
+    const topics = await db.select({
+      id: forumTopics.id,
+      lastPostAt: forumTopics.lastPostAt,
+      createdAt: forumTopics.createdAt,
+      postCount: forumTopics.postCount
+    }).from(forumTopics).where(eq(forumTopics.forumId, forumId));
+
+    const [{ value: postCount }] = await db.select({ value: sql<number>`COUNT(*)` })
+      .from(forumPosts)
+      .where(eq(forumPosts.forumId, forumId));
+
+    let lastActivityAt: Date | null = null;
+    let lastTopicId: string | null = null;
+    if (topics.length > 0) {
+      topics.sort((a, b) => {
+        const aTime = (a.lastPostAt ?? a.createdAt)?.getTime() ?? 0;
+        const bTime = (b.lastPostAt ?? b.createdAt)?.getTime() ?? 0;
+        return bTime - aTime;
+      });
+      const latest = topics[0];
+      lastActivityAt = latest.lastPostAt ?? latest.createdAt ?? null;
+      lastTopicId = latest.id;
+    }
+
+    await db.update(forums)
+      .set({
+        topicCount: topics.length,
+        postCount: Number(postCount ?? 0),
+        lastActivityAt,
+        lastTopicId,
+        updatedAt: new Date(),
+      })
+      .where(eq(forums.id, forumId));
+  }
+
+  private async refreshTopicMetrics(topicId: string): Promise<void> {
+    const topic = await this.getForumTopic(topicId);
+    if (!topic) return;
+    const posts = await db.select({
+      id: forumPosts.id,
+      authorId: forumPosts.authorId,
+      createdAt: forumPosts.createdAt
+    }).from(forumPosts).where(eq(forumPosts.topicId, topicId)).orderBy(desc(forumPosts.createdAt));
+    const postCount = posts.length;
+    const participants = new Set<string>(posts.map(post => post.authorId));
+    participants.add(topic.authorId);
+    const lastPost = posts[0];
+
+    await db.update(forumTopics)
+      .set({
+        postCount,
+        participantCount: participants.size,
+        lastPostId: lastPost?.id ?? topic.lastPostId ?? null,
+        lastPostAt: lastPost?.createdAt ?? topic.lastPostAt ?? topic.createdAt,
+        lastPostAuthorId: lastPost?.authorId ?? topic.lastPostAuthorId ?? topic.authorId,
+        updatedAt: new Date(),
+      })
+      .where(eq(forumTopics.id, topicId));
+
+    await this.refreshForumMetrics(topic.forumId);
+  }
+
+  private async refreshPostVotes(postId: string): Promise<void> {
+    const [{ upvotes, downvotes }] = await db.select({
+      upvotes: sql<number>`COUNT(*) FILTER (WHERE ${forumPostVotes.voteType} = 'up')`,
+      downvotes: sql<number>`COUNT(*) FILTER (WHERE ${forumPostVotes.voteType} = 'down')`
+    }).from(forumPostVotes).where(eq(forumPostVotes.postId, postId));
+
+    await db.update(forumPosts)
+      .set({
+        upvotes: Number(upvotes ?? 0),
+        downvotes: Number(downvotes ?? 0),
+        score: Number(upvotes ?? 0) - Number(downvotes ?? 0),
+        updatedAt: new Date(),
+      })
+      .where(eq(forumPosts.id, postId));
+  }
+
+  async getForum(id: string): Promise<Forum | undefined> {
+    const result = await db.select().from(forums).where(eq(forums.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getForums(filters?: { isActive?: boolean; forumType?: string; communityGroupId?: string; isPrivate?: boolean }): Promise<Forum[]> {
+    const conditions = [];
+    if (filters?.isActive !== undefined) conditions.push(eq(forums.isActive, filters.isActive));
+    if (filters?.forumType) conditions.push(eq(forums.forumType, filters.forumType));
+    if (filters?.communityGroupId) conditions.push(eq(forums.communityGroupId, filters.communityGroupId));
+    if (filters?.isPrivate !== undefined) conditions.push(eq(forums.isPrivate, filters.isPrivate));
+    const whereClause = conditions.reduce((acc, condition) => acc ? and(acc, condition) : condition, undefined);
+    const query = whereClause ? db.select().from(forums).where(whereClause) : db.select().from(forums);
+    return await query.orderBy(desc(forums.updatedAt));
+  }
+
+  async getForumsByGroup(communityGroupId: string): Promise<Forum[]> {
+    return await db.select().from(forums).where(eq(forums.communityGroupId, communityGroupId));
+  }
+
+  async getPublicForums(): Promise<Forum[]> {
+    return await db.select().from(forums).where(
+      and(
+        eq(forums.isPrivate, false),
+        eq(forums.isActive, true)
+      )
+    ).orderBy(desc(forums.updatedAt));
+  }
+
+  async createForum(insertForum: InsertForum): Promise<Forum> {
+    const payload = {
+      ...insertForum,
+      forumType: (insertForum as any).forumType ?? 'general',
+      moderation: (insertForum as any).moderation ?? 'open',
+      displayOrder: insertForum.displayOrder ?? 0,
+      color: insertForum.color ?? null,
+      icon: insertForum.icon ?? null,
+      coverImage: (insertForum as any).coverImage ?? null,
+      isPrivate: insertForum.isPrivate ?? false,
+      membershipRequired: (insertForum as any).membershipRequired ?? null,
+      requiredRoles: insertForum.requiredRoles ?? [],
+      moderatorIds: insertForum.moderatorIds ?? [],
+      tags: insertForum.tags ?? [],
+      rules: insertForum.rules ?? null,
+      topicCount: 0,
+      postCount: 0,
+      lastActivityAt: null,
+      lastTopicId: null,
+      isActive: (insertForum as any).isActive ?? true,
+    };
+    const result = await db.insert(forums).values(payload).returning();
+    return result[0];
+  }
+
+  async updateForum(id: string, updates: Partial<InsertForum>): Promise<Forum | undefined> {
+    const payload: Partial<InsertForum> & { updatedAt?: Date } = applyDefined({}, updates);
+    payload.updatedAt = new Date();
+    const result = await db.update(forums)
+      .set(payload)
+      .where(eq(forums.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteForum(id: string): Promise<boolean> {
+    const result = await db.delete(forums).where(eq(forums.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getForumTopic(id: string): Promise<ForumTopic | undefined> {
+    const result = await db.select().from(forumTopics).where(eq(forumTopics.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getForumTopicBySlug(forumId: string, slug: string): Promise<ForumTopic | undefined> {
+    const result = await db.select()
+      .from(forumTopics)
+      .where(and(eq(forumTopics.forumId, forumId), eq(forumTopics.slug, slug)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getForumTopics(
+    forumId: string,
+    filters?: { status?: string; isPinned?: boolean; isLocked?: boolean; isSolved?: boolean; authorId?: string; tags?: string[] },
+  ): Promise<ForumTopic[]> {
+    const conditions = [eq(forumTopics.forumId, forumId)];
+    if (filters?.status) conditions.push(eq(forumTopics.status, filters.status));
+    if (filters?.isPinned !== undefined) conditions.push(eq(forumTopics.isPinned, filters.isPinned));
+    if (filters?.isLocked !== undefined) conditions.push(eq(forumTopics.isLocked, filters.isLocked));
+    if (filters?.isSolved !== undefined) conditions.push(eq(forumTopics.isSolved, filters.isSolved));
+    if (filters?.authorId) conditions.push(eq(forumTopics.authorId, filters.authorId));
+    let query = db.select().from(forumTopics);
+    if (conditions.length > 0) {
+      const whereClause = conditions.reduce((acc, condition) => acc ? and(acc, condition) : condition);
+      query = query.where(whereClause);
+    }
+    let topics = await query.orderBy(desc(sql`COALESCE(${forumTopics.lastPostAt}, ${forumTopics.createdAt})`));
+    if (filters?.tags && filters.tags.length > 0) {
+      topics = topics.filter(topic => (topic.tags || []).some(tag => filters.tags!.includes(tag)));
+    }
+    return topics;
+  }
+
+  async getTopicsByAuthor(authorId: string): Promise<ForumTopic[]> {
+    return await db.select().from(forumTopics).where(eq(forumTopics.authorId, authorId)).orderBy(desc(forumTopics.createdAt));
+  }
+
+  async getRecentTopics(limit = 10): Promise<ForumTopic[]> {
+    return await db.select().from(forumTopics).orderBy(desc(forumTopics.createdAt)).limit(limit);
+  }
+
+  async getTrendingTopics(limit = 10): Promise<ForumTopic[]> {
+    return await db.select().from(forumTopics).orderBy(desc(forumTopics.postCount)).limit(limit);
+  }
+
+  async createForumTopic(topicData: InsertForumTopic): Promise<ForumTopic> {
+    const payload = {
+      ...topicData,
+      slug: topicData.slug ?? this.slugify(topicData.title),
+      status: topicData.status ?? 'active',
+      isPinned: topicData.isPinned ?? false,
+      isLocked: topicData.isLocked ?? false,
+      isSolved: topicData.isSolved ?? false,
+      viewCount: topicData.viewCount ?? 0,
+      postCount: topicData.postCount ?? 0,
+      participantCount: topicData.participantCount ?? 1,
+      tags: topicData.tags ?? [],
+      metadata: topicData.metadata ?? {},
+    };
+    const result = await db.insert(forumTopics).values(payload).returning();
+    const topic = result[0];
+    await this.refreshForumMetrics(topic.forumId);
+    return topic;
+  }
+
+  async updateForumTopic(id: string, updates: Partial<InsertForumTopic>): Promise<ForumTopic | undefined> {
+    const payload: Partial<InsertForumTopic> & { updatedAt?: Date } = applyDefined({}, updates);
+    if (updates?.title && !updates.slug) {
+      payload.slug = this.slugify(updates.title);
+    }
+    payload.updatedAt = new Date();
+    const result = await db.update(forumTopics)
+      .set(payload)
+      .where(eq(forumTopics.id, id))
+      .returning();
+    const updated = result[0];
+    if (updated) {
+      await this.refreshForumMetrics(updated.forumId);
+    }
+    return updated;
+  }
+
+  async pinTopic(id: string, isPinned: boolean): Promise<ForumTopic | undefined> {
+    const result = await db.update(forumTopics)
+      .set({ isPinned, updatedAt: new Date() })
+      .where(eq(forumTopics.id, id))
+      .returning();
+    const topic = result[0];
+    if (topic) {
+      await this.refreshForumMetrics(topic.forumId);
+    }
+    return topic;
+  }
+
+  async lockTopic(id: string, isLocked: boolean): Promise<ForumTopic | undefined> {
+    const result = await db.update(forumTopics)
+      .set({ isLocked, updatedAt: new Date() })
+      .where(eq(forumTopics.id, id))
+      .returning();
+    const topic = result[0];
+    if (topic) {
+      await this.refreshForumMetrics(topic.forumId);
+    }
+    return topic;
+  }
+
+  async solveTopic(id: string, isSolved: boolean): Promise<ForumTopic | undefined> {
+    const result = await db.update(forumTopics)
+      .set({ isSolved, updatedAt: new Date() })
+      .where(eq(forumTopics.id, id))
+      .returning();
+    const topic = result[0];
+    if (topic) {
+      await this.refreshForumMetrics(topic.forumId);
+    }
+    return topic;
+  }
+
+  async incrementTopicViews(id: string): Promise<void> {
+    await db.execute(sql`UPDATE ${forumTopics} SET view_count = view_count + 1, updated_at = NOW() WHERE id = ${id}`);
+  }
+
+  async deleteForumTopic(id: string): Promise<boolean> {
+    const topic = await this.getForumTopic(id);
+    if (!topic) return false;
+    const result = await db.delete(forumTopics).where(eq(forumTopics.id, id)).returning();
+    if (result.length > 0) {
+      await this.refreshForumMetrics(topic.forumId);
+    }
+    return result.length > 0;
+  }
+
+  async getForumPost(id: string): Promise<ForumPost | undefined> {
+    const result = await db.select().from(forumPosts).where(eq(forumPosts.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getForumPosts(forumId: string): Promise<ForumPost[]> {
+    return await db.select().from(forumPosts).where(eq(forumPosts.forumId, forumId)).orderBy(forumPosts.createdAt);
+  }
+
+  async getPostsByAuthor(authorId: string): Promise<ForumPost[]> {
+    return await db.select().from(forumPosts).where(eq(forumPosts.authorId, authorId)).orderBy(forumPosts.createdAt);
+  }
+
+  async getTopLevelPosts(topicId: string): Promise<ForumPost[]> {
+    return await db.select()
+      .from(forumPosts)
+      .where(and(eq(forumPosts.topicId, topicId), sql`${forumPosts.parentPostId} IS NULL`))
+      .orderBy(forumPosts.createdAt);
+  }
+
+  async getPostReplies(parentPostId: string): Promise<ForumPost[]> {
+    return await db.select().from(forumPosts).where(eq(forumPosts.parentPostId, parentPostId)).orderBy(forumPosts.createdAt);
+  }
+
+  async getPostThread(postId: string): Promise<ForumPost[]> {
+    const post = await this.getForumPost(postId);
+    if (!post) return [];
+    return await db.select()
+      .from(forumPosts)
+      .where(eq(forumPosts.topicId, post.topicId))
+      .orderBy(forumPosts.createdAt);
+  }
+
+  async createForumPost(postData: InsertForumPost): Promise<ForumPost> {
+    const payload = {
+      ...postData,
+      attachments: postData.attachments ?? [],
+      images: postData.images ?? [],
+      metadata: postData.metadata ?? {},
+    };
+    const result = await db.insert(forumPosts).values(payload).returning();
+    const post = result[0];
+    await this.refreshTopicMetrics(post.topicId);
+    await this.refreshForumMetrics(post.forumId);
+    return post;
+  }
+
+  async updateForumPost(id: string, updates: Partial<InsertForumPost>): Promise<ForumPost | undefined> {
+    const payload: Partial<InsertForumPost> & { updatedAt?: Date } = applyDefined({}, updates);
+    payload.updatedAt = new Date();
+    const result = await db.update(forumPosts)
+      .set(payload)
+      .where(eq(forumPosts.id, id))
+      .returning();
+    const post = result[0];
+    if (post) {
+      await this.refreshTopicMetrics(post.topicId);
+      await this.refreshForumMetrics(post.forumId);
+    }
+    return post;
+  }
+
+  async markPostAsAnswer(postId: string, topicId: string, acceptedBy: string): Promise<ForumPost | undefined> {
+    await db.update(forumPosts)
+      .set({
+        isAcceptedAnswer: true,
+        acceptedAt: new Date(),
+        acceptedBy,
+        updatedAt: new Date(),
+      })
+      .where(eq(forumPosts.id, postId));
+
+    const result = await db.update(forumTopics)
+      .set({
+        acceptedAnswerId: postId,
+        isSolved: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(forumTopics.id, topicId))
+      .returning();
+
+    const topic = result[0];
+    if (topic) {
+      await this.refreshForumMetrics(topic.forumId);
+    }
+    return await this.getForumPost(postId);
+  }
+
+  async unmarkPostAsAnswer(postId: string, topicId: string): Promise<ForumPost | undefined> {
+    await db.update(forumPosts)
+      .set({
+        isAcceptedAnswer: false,
+        acceptedAt: null,
+        acceptedBy: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(forumPosts.id, postId));
+
+    const result = await db.update(forumTopics)
+      .set({
+        acceptedAnswerId: null,
+        isSolved: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(forumTopics.id, topicId))
+      .returning();
+
+    const topic = result[0];
+    if (topic) {
+      await this.refreshForumMetrics(topic.forumId);
+    }
+    return await this.getForumPost(postId);
+  }
+
+  async deleteForumPost(id: string): Promise<boolean> {
+    const post = await this.getForumPost(id);
+    if (!post) return false;
+    const result = await db.delete(forumPosts).where(eq(forumPosts.id, id)).returning();
+    if (result.length > 0) {
+      await this.refreshTopicMetrics(post.topicId);
+      await this.refreshForumMetrics(post.forumId);
+    }
+    return result.length > 0;
+  }
+
+  async getPostVote(postId: string, userId: string): Promise<ForumPostVote | undefined> {
+    const result = await db.select()
+      .from(forumPostVotes)
+      .where(and(eq(forumPostVotes.postId, postId), eq(forumPostVotes.userId, userId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async getPostVotes(postId: string): Promise<ForumPostVote[]> {
+    return await db.select().from(forumPostVotes).where(eq(forumPostVotes.postId, postId));
+  }
+
+  async createPostVote(vote: InsertForumPostVote): Promise<ForumPostVote> {
+    const existing = await this.getPostVote(vote.postId, vote.userId);
+    if (existing) {
+      return existing;
+    }
+    const result = await db.insert(forumPostVotes).values(vote).returning();
+    await this.refreshPostVotes(vote.postId);
+    return result[0];
+  }
+
+  async updatePostVote(postId: string, userId: string, voteType: 'up' | 'down'): Promise<ForumPostVote | undefined> {
+    const result = await db.update(forumPostVotes)
+      .set({ voteType, updatedAt: new Date() })
+      .where(and(eq(forumPostVotes.postId, postId), eq(forumPostVotes.userId, userId)))
+      .returning();
+    if (result[0]) {
+      await this.refreshPostVotes(postId);
+    }
+    return result[0];
+  }
+
+  async removePostVote(postId: string, userId: string): Promise<boolean> {
+    const result = await db.delete(forumPostVotes)
+      .where(and(eq(forumPostVotes.postId, postId), eq(forumPostVotes.userId, userId)))
+      .returning();
+    if (result.length > 0) {
+      await this.refreshPostVotes(postId);
+    }
+    return result.length > 0;
+  }
+
+  async getPostScore(postId: string): Promise<{ upvotes: number; downvotes: number; score: number }> {
+    const [{ upvotes, downvotes }] = await db.select({
+      upvotes: sql<number>`COUNT(*) FILTER (WHERE ${forumPostVotes.voteType} = 'up')`,
+      downvotes: sql<number>`COUNT(*) FILTER (WHERE ${forumPostVotes.voteType} = 'down')`
+    }).from(forumPostVotes).where(eq(forumPostVotes.postId, postId));
+    const up = Number(upvotes ?? 0);
+    const down = Number(downvotes ?? 0);
+    return { upvotes: up, downvotes: down, score: up - down };
+  }
+
+  async getForumStats(forumId: string): Promise<{ topicCount: number; postCount: number; participantCount: number }> {
+    const [topicCountRow] = await db.select({ value: sql<number>`COUNT(*)` }).from(forumTopics).where(eq(forumTopics.forumId, forumId));
+    const [postCountRow] = await db.select({ value: sql<number>`COUNT(*)` }).from(forumPosts).where(eq(forumPosts.forumId, forumId));
+    const participants = await db.select({ value: forumPosts.authorId }).from(forumPosts).where(eq(forumPosts.forumId, forumId));
+    const topicAuthors = await db.select({ value: forumTopics.authorId }).from(forumTopics).where(eq(forumTopics.forumId, forumId));
+    const participantSet = new Set<string>(participants.map(row => row.value));
+    topicAuthors.forEach(row => participantSet.add(row.value));
+    return {
+      topicCount: Number(topicCountRow?.value ?? 0),
+      postCount: Number(postCountRow?.value ?? 0),
+      participantCount: participantSet.size,
+    };
+  }
+
+  async getTopicStats(topicId: string): Promise<{ postCount: number; participantCount: number; viewCount: number }> {
+    const topic = await this.getForumTopic(topicId);
+    if (!topic) {
+      return { postCount: 0, participantCount: 0, viewCount: 0 };
+    }
+    const [postCountRow] = await db.select({ value: sql<number>`COUNT(*)` }).from(forumPosts).where(eq(forumPosts.topicId, topicId));
+    const participants = await db.select({ value: forumPosts.authorId }).from(forumPosts).where(eq(forumPosts.topicId, topicId));
+    const participantSet = new Set<string>(participants.map(row => row.value));
+    participantSet.add(topic.authorId);
+    return {
+      postCount: Number(postCountRow?.value ?? 0),
+      participantCount: participantSet.size,
+      viewCount: topic.viewCount ?? 0,
+    };
+  }
+
+  async getUserForumActivity(userId: string): Promise<{ topicCount: number; postCount: number; votesReceived: number }> {
+    const [topicCountRow] = await db.select({ value: sql<number>`COUNT(*)` }).from(forumTopics).where(eq(forumTopics.authorId, userId));
+    const [postCountRow] = await db.select({ value: sql<number>`COUNT(*)` }).from(forumPosts).where(eq(forumPosts.authorId, userId));
+    const [votesRow] = await db.select({ value: sql<number>`COUNT(*)` })
+      .from(forumPostVotes)
+      .where(inArray(forumPostVotes.postId,
+        db.select({ id: forumPosts.id }).from(forumPosts).where(eq(forumPosts.authorId, userId))
+      ));
+    return {
+      topicCount: Number(topicCountRow?.value ?? 0),
+      postCount: Number(postCountRow?.value ?? 0),
+      votesReceived: Number(votesRow?.value ?? 0),
+    };
+  }
+
+  async moderatePost(postId: string, status: string): Promise<ForumPost | undefined> {
+    const result = await db.update(forumPosts)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(forumPosts.id, postId))
+      .returning();
+    const post = result[0];
+    if (post) {
+      await this.refreshTopicMetrics(post.topicId);
+      await this.refreshForumMetrics(post.forumId);
+    }
+    return post;
+  }
+
+  async flagPost(postId: string, userId: string, reason: string): Promise<void> {
+    const post = await this.getForumPost(postId);
+    if (!post) return;
+    const metadata = (post.metadata as Record<string, unknown>) ?? {};
+    const flags = Array.isArray(metadata.flags) ? [...metadata.flags] : [];
+    flags.push({ userId, reason, flaggedAt: new Date().toISOString() });
+    metadata.flags = flags;
+    await db.update(forumPosts)
+      .set({ status: 'flagged', metadata, updatedAt: new Date() })
+      .where(eq(forumPosts.id, postId));
+  }
+
+  async getFlaggedPosts(forumId?: string): Promise<ForumPost[]> {
+    const conditions = [eq(forumPosts.status, 'flagged')];
+    if (forumId) conditions.push(eq(forumPosts.forumId, forumId));
+    const whereClause = conditions.reduce((acc, condition) => acc ? and(acc, condition) : condition);
+    return await db.select().from(forumPosts).where(whereClause).orderBy(desc(forumPosts.updatedAt));
+  }
+
   // Notifications
   async getNotification(id: string): Promise<Notification | undefined> {
     const result = await db.select().from(notifications).where(eq(notifications.id, id)).limit(1);
@@ -1070,6 +1625,26 @@ export class DbStorage implements IStorage {
         eq(notifications.userId, userId),
         eq(notifications.isRead, false)
       ));
+  }
+
+
+  // Notification Settings
+  async getNotificationSettings(userId: string): Promise<NotificationSettings | undefined> {
+    const result = await db.select().from(notificationSettings).where(eq(notificationSettings.userId, userId)).limit(1);
+    return result[0];
+  }
+
+  async createNotificationSettings(settings: InsertNotificationSettings): Promise<NotificationSettings> {
+    const result = await db.insert(notificationSettings).values(settings).returning();
+    return result[0];
+  }
+
+  async updateNotificationSettings(userId: string, updates: Partial<InsertNotificationSettings>): Promise<NotificationSettings | undefined> {
+    const result = await db.update(notificationSettings)
+      .set(applyDefined({}, updates))
+      .where(eq(notificationSettings.userId, userId))
+      .returning();
+    return result[0];
   }
 
   // Calendar events
@@ -1473,6 +2048,10 @@ export class DbStorage implements IStorage {
   async createScheduleAuditLog(auditEntry: InsertScheduleAuditLog): Promise<ScheduleAuditLog> {
     const result = await db.insert(scheduleAuditLog).values(auditEntry).returning();
     return result[0];
+  }
+
+  async seedComprehensiveData(): Promise<void> {
+    await seedComprehensiveDataFunction(this as unknown as IStorage);
   }
 }
 

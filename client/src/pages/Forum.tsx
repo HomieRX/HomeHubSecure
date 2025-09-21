@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Link, useParams, useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -126,15 +127,23 @@ interface ForumTopic {
 }
 
 // Create Topic Schema
-const createTopicSchema = {
+const createTopicFormSchema = z.object({
+  title: z.string().min(3, 'Title must be at least 3 characters'),
+  description: z.string().max(500, 'Description is too long').optional().default(''),
+  initialPostContent: z.string().min(1, 'Please provide an initial post'),
+  tags: z.array(z.string()).default([]),
+  bountyPoints: z.number().min(0, 'Bounty points cannot be negative').default(0),
+});
+
+type CreateTopicData = z.infer<typeof createTopicFormSchema>;
+
+const createTopicDefaultValues: CreateTopicData = {
   title: '',
   description: '',
   initialPostContent: '',
-  tags: [] as string[],
-  bountyPoints: 0
+  tags: [],
+  bountyPoints: 0,
 };
-
-type CreateTopicData = typeof createTopicSchema;
 
 const forumTypeConfig = {
   general: {
@@ -191,8 +200,8 @@ export default function Forum() {
 
   // Create Topic Form
   const topicForm = useForm<CreateTopicData>({
-    resolver: zodResolver,
-    defaultValues: createTopicSchema
+    resolver: zodResolver(createTopicFormSchema),
+    defaultValues: createTopicDefaultValues
   });
 
   const { toast } = useToast();

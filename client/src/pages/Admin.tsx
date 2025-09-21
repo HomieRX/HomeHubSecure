@@ -361,7 +361,8 @@ export default function Admin() {
     queryKey: ["/api/auth/user"]
   });
 
-  const isAdmin = (currentUser as any)?.role === "admin";
+  const authUser = (currentUser as any)?.user ?? currentUser;
+  const isAdmin = authUser?.role === "admin";
 
   if (userLoading) {
     return (

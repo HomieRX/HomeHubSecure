@@ -16,11 +16,11 @@
 
   --background: 0deg 0% 0%;
 
-  --foreground: 220 10% 95%;
+  --foreground: 216deg 18.07% 67.45%;
 
   --border: 0deg 5.83% 56.27%;
 
-  --card: 221.54deg 32.5% 15.69%;
+  --card: 0deg 0% 1.96%;
 
   --card-foreground: 0deg 0% 100%;
 
@@ -56,9 +56,9 @@
 
   --secondary-foreground: 0deg 0% 69.02%;
 
-  --muted: 221.54deg 32.5% 15.69%;
+  --muted: 248.18deg 18.33% 23.53%;
 
-  --muted-foreground: 0deg 0% 56.86%;
+  --muted-foreground: 216deg 18.07% 67.45%;
 
   --accent: 220deg 14.63% 16.08%;
 
@@ -76,10 +76,10 @@
   --chart-4: 147 79% 42%;
   --chart-5: 341 75% 51%;
 
-  --font-sans: 'Open Sans', sans-serif;
-  --font-serif: 'Roboto Mono', monospace;
-  --font-mono: JetBrains Mono, monospace;
-  --radius: 0.5rem;
+  --font-sans: Roboto;
+  --font-serif: Roboto;
+  --font-mono: JetBrains Mono;
+  --radius: 0.7rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(220 85% 55% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(220 85% 55% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(220 85% 55% / 0.00), 0px 1px 2px -1px hsl(220 85% 55% / 0.00);

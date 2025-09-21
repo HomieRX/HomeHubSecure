@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Link } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import type { AuthUserResponse } from '@shared/types';
 import { apiRequest } from '@/lib/queryClient';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import {
@@ -125,16 +127,25 @@ const forumTypeConfig = {
 };
 
 // Create Forum Schema - simplified for basic forum creation
-const createForumSchema = {
+const createForumFormSchema = z.object({
+  name: z.string().min(3, 'Name must be at least 3 characters'),
+  description: z.string().max(500, 'Description is too long').optional().default(''),
+  forumType: z.enum(['general', 'qa', 'announcements', 'help', 'showcase', 'group']).default('general'),
+  isPrivate: z.boolean().default(false),
+  tags: z.array(z.string()).default([]),
+  rules: z.string().max(1000, 'Rules are too long').optional().default(''),
+});
+
+type CreateForumData = z.infer<typeof createForumFormSchema>;
+
+const createForumDefaultValues: CreateForumData = {
   name: '',
   description: '',
-  forumType: 'general' as const,
+  forumType: 'general',
   isPrivate: false,
-  tags: [] as string[],
-  rules: ''
+  tags: [],
+  rules: '',
 };
-
-type CreateForumData = typeof createForumSchema;
 
 export default function ForumList() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -145,8 +156,8 @@ export default function ForumList() {
 
   // Create Forum Form
   const forumForm = useForm<CreateForumData>({
-    resolver: zodResolver,
-    defaultValues: createForumSchema
+    resolver: zodResolver(createForumFormSchema),
+    defaultValues: createForumDefaultValues
   });
 
   const { toast } = useToast();
@@ -165,7 +176,7 @@ export default function ForumList() {
   });
 
   // Get current user for permissions
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<AuthUserResponse>({
     queryKey: ['/api/auth/user']
   });
 
@@ -181,7 +192,7 @@ export default function ForumList() {
       });
       queryClient.invalidateQueries({ queryKey: ['/api/forums'] });
       setIsCreateForumOpen(false);
-      forumForm.reset();
+      forumForm.reset(createForumDefaultValues);
     },
     onError: (error: any) => {
       toast({

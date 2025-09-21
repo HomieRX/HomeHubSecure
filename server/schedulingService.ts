@@ -18,12 +18,14 @@ import {
   type InsertTimeSlot,
   type ScheduleConflict,
   type InsertScheduleConflict,
+  type InsertScheduleAuditLog,
   type WorkOrder,
+  type InsertWorkOrder,
   type ContractorProfile,
   slotDurationEnum,
   conflictSeverityEnum,
 } from "@shared/schema";
-import { storage } from "./storage";
+import { getStorageRepositories } from "./storage/repositories";
 
 // ===========================
 // INTERNAL TYPES (non-breaking)
@@ -122,12 +124,47 @@ export class SchedulingService {
   private TURNOVER_BUFFER_MINUTES = 20; // no job within +/- 20 mins
   private TRAVEL_MINUTES = 20; // naive travel pad if different address
 
+  private async resolveRepositories() {
+    return getStorageRepositories();
+  }
+
+  private async schedulingStorage() {
+    const repos = await this.resolveRepositories();
+    return {
+      getContractorProfile: (id: string) => repos.contractors.getContractorProfile(id),
+      getContractorTimeSlots: (contractorId: string, start?: Date, end?: Date) =>
+        repos.schedulingSlots.getContractorTimeSlots(contractorId, start, end),
+      getWorkOrdersByContractor: (contractorId: string) =>
+        repos.workOrders.getWorkOrdersByContractor(contractorId),
+      getOverlappingTimeSlots: (contractorId: string, start: Date, end: Date) =>
+        repos.schedulingSlots.getOverlappingTimeSlots(contractorId, start, end),
+      getOverlappingWorkOrders: (contractorId: string, start: Date, end: Date) =>
+        repos.schedulingWorkOrders.getOverlappingWorkOrders(contractorId, start, end),
+      getWorkOrdersByDateRange: (contractorId: string, start: Date, end: Date) =>
+        repos.schedulingWorkOrders.getWorkOrdersByDateRange(contractorId, start, end),
+      createTimeSlot: (slot: InsertTimeSlot) => repos.schedulingSlots.createTimeSlot(slot),
+      updateTimeSlot: (id: string, updates: Partial<InsertTimeSlot>) =>
+        repos.schedulingSlots.updateTimeSlot(id, updates),
+      getTimeSlot: (id: string) => repos.schedulingSlots.getTimeSlot(id),
+      createScheduleConflict: (conflict: InsertScheduleConflict) =>
+        repos.schedulingConflicts.createScheduleConflict(conflict),
+      createScheduleAuditLog: (entry: InsertScheduleAuditLog) =>
+        repos.schedulingAudit.createScheduleAuditLog(entry),
+      getServiceRequest: (id: string) => repos.serviceRequests.getServiceRequest(id),
+      getWorkOrder: (id: string) => repos.workOrders.getWorkOrder(id),
+      updateWorkOrder: (id: string, updates: Partial<InsertWorkOrder>) =>
+        repos.workOrders.updateWorkOrder(id, updates),
+      getWorkOrders: () => repos.workOrders.getWorkOrders(),
+    };
+  }
+
   /**
    * Generate available time slots for a contractor based on their working hours and existing bookings
    */
   async generateAvailableSlots(
     request: AvailabilityRequest,
   ): Promise<TimeSlot[]> {
+    const storage = await this.schedulingStorage();
     const contractor = await storage.getContractorProfile(request.contractorId);
     if (!contractor) {
       throw new Error(`Contractor ${request.contractorId} not found`);
@@ -228,6 +265,7 @@ export class SchedulingService {
   async detectConflicts(
     request: SlotBookingRequest,
   ): Promise<ConflictDetails[]> {
+    const storage = await this.schedulingStorage();
     const conflicts: ConflictDetails[] = [];
 
     const contractor = await storage.getContractorProfile(request.contractorId);
@@ -337,6 +375,7 @@ export class SchedulingService {
    * Book a time slot, handling conflicts and admin overrides
    */
   async bookSlot(request: SlotBookingRequest): Promise<SchedulingResult> {
+    const storage = await this.schedulingStorage();
     const conflicts = await this.detectConflicts(request);
 
     // Reject on hard/policy conflicts unless admin override
@@ -716,6 +755,7 @@ export class SchedulingService {
     request: SlotBookingRequest,
     bufferMinutes: number,
   ): Promise<ConflictDetails[]> {
+    const storage = await this.schedulingStorage();
     const conflicts: ConflictDetails[] = [];
 
     // Work orders within an hour around the request window
@@ -772,6 +812,7 @@ export class SchedulingService {
     request: SlotBookingRequest,
     travelMinutes: number,
   ): Promise<ConflictDetails[]> {
+    const storage = await this.schedulingStorage();
     const conflicts: ConflictDetails[] = [];
     const currentWorkOrder = await storage.getWorkOrder(request.workOrderId);
     if (!currentWorkOrder) return conflicts;
@@ -840,6 +881,7 @@ export class SchedulingService {
     startTime: Date,
     endTime: Date,
   ): Promise<TimeSlot | undefined> {
+    const storage = await this.schedulingStorage();
     const overlappingSlots = await storage.getOverlappingTimeSlots(
       contractorId,
       addMinutes(startTime, -1),
@@ -856,6 +898,7 @@ export class SchedulingService {
     request: SlotBookingRequest,
     conflicts: ConflictDetails[],
   ) {
+    const storage = await this.schedulingStorage();
     for (const conflict of conflicts) {
       const conflictData: InsertScheduleConflict = {
         conflictType: conflict.severity,
@@ -882,6 +925,7 @@ export class SchedulingService {
    * Handle admin override for scheduling conflicts
    */
   async handleAdminOverride(request: AdminSlotOverrideRequest): Promise<void> {
+    const storage = await this.schedulingStorage();
     await storage.createScheduleAuditLog({
       action: "admin_override",
       entityType: "work_order",
@@ -917,6 +961,7 @@ export class SchedulingService {
   }
 
   private async auditOverrideAction(request: SlotBookingRequest) {
+    const storage = await this.schedulingStorage();
     await storage.createScheduleAuditLog({
       action: "admin_override",
       entityType: "work_order",

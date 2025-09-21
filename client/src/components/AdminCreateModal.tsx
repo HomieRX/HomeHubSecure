@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+
 import {
   insertUserSchema,
   insertMemberProfileSchema,
@@ -51,6 +52,8 @@ import {
   type InsertForumPost,
   type InsertForumPostVote
 } from "@shared/schema";
+
+type GenericFormValues = Record<string, unknown>;
 
 type EntityType = 
   | "users" 
@@ -428,9 +431,9 @@ export default function AdminCreateModal({ isOpen, onClose, entityType, title }:
   const schema = getSchemaForEntity(entityType);
   const defaultValues = getDefaultValues(entityType);
 
-  const form = useForm({
+  const form = useForm<GenericFormValues>({
     resolver: zodResolver(schema),
-    defaultValues
+    defaultValues: defaultValues as GenericFormValues
   });
 
   // Get users for dropdowns
@@ -505,7 +508,7 @@ export default function AdminCreateModal({ isOpen, onClose, entityType, title }:
         description: `${title} created successfully`,
       });
       onClose();
-      form.reset(defaultValues);
+      form.reset(defaultValues as GenericFormValues);
     },
     onError: (error: any) => {
       toast({

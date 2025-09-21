@@ -834,6 +834,7 @@ export const forumTopics = pgTable("forum_topics", {
   uniqueSlug: unique("forum_topics_unique_slug").on(table.forumId, table.slug),
 }));
 
+// @ts-expect-error Drizzle self-referential table definition
 export const forumPosts = pgTable("forum_posts", {
   id: varchar("id")
     .primaryKey()

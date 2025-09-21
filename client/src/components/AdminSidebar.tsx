@@ -178,6 +178,12 @@ export function AdminSidebar({ selectedItem, onItemSelect }: AdminSidebarProps) 
     queryKey: ["/api/auth/user"]
   });
 
+  const authUser = (currentUser as any)?.user ?? currentUser;
+  const userDisplayName = [authUser?.firstName, authUser?.lastName].filter(Boolean).join(' ').trim();
+  const userInitials = userDisplayName
+    ? userDisplayName.split(' ').filter(Boolean).map(part => part[0]!.toUpperCase()).join('').slice(0, 2)
+    : (authUser?.email ?? 'HH').slice(0, 2).toUpperCase();
+
   // Get counts for each item type
   const { data: itemCounts = {} } = useQuery({
     queryKey: ["/api/admin/counts"],
@@ -264,19 +270,19 @@ export function AdminSidebar({ selectedItem, onItemSelect }: AdminSidebarProps) 
         <div className="flex items-center gap-3">
           <Avatar className="h-8 w-8">
             <AvatarImage 
-              src={(currentUser as any)?.profileImageUrl} 
-              alt={(currentUser as any)?.firstName + " " + (currentUser as any)?.lastName}
+              src={authUser?.profileImageUrl ?? undefined} 
+              alt={userDisplayName}
             />
             <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-              {(currentUser as any)?.firstName?.[0]}{(currentUser as any)?.lastName?.[0]}
+              {userInitials}
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground truncate">
-              {(currentUser as any)?.firstName} {(currentUser as any)?.lastName}
+              {userDisplayName || 'Admin'}
             </p>
             <p className="text-xs text-muted-foreground truncate">
-              {(currentUser as any)?.email}
+              {authUser?.email}
             </p>
           </div>
           <Badge variant="outline" className="text-xs">

@@ -15,11 +15,48 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertCircle, Clock, DollarSign, Wrench, User, CheckCircle, Calendar, MapPin, Star, MessageSquare } from "lucide-react";
-import { AuthUserResponse, ServiceRequestResponse, ServiceRequestsResponse, MembershipTier, ServiceRequest } from "@shared/types";
+import { AuthUserResponse, MembershipTier, ServiceCategory, ServiceRequest } from "@shared/types";
+
+
+// Common problem types for FixiT! diagnostics
+const FIXIT_CATEGORY_VALUES = [
+  "Handyman",
+  "Basic Electrical",
+  "Basic Plumbing",
+  "Water Heater",
+  "Dishwasher",
+  "Oven",
+  "Microwave",
+  "Refrigerator",
+  "Sink Disposal",
+  "Clothes Washer",
+  "Clothes Dryer",
+  "Basic Irrigation",
+] as const satisfies readonly ServiceCategory[];
+
+type FixiTCategory = (typeof FIXIT_CATEGORY_VALUES)[number];
+
+const PROBLEM_TYPES: Array<{ value: FixiTCategory; label: string }> = [
+  { value: "Handyman", label: "General Repairs and Maintenance" },
+  { value: "Basic Electrical", label: "Electrical Issues" },
+  { value: "Basic Plumbing", label: "Plumbing Problems" },
+  { value: "Water Heater", label: "Water Heater and HVAC Systems" },
+  { value: "Dishwasher", label: "Dishwasher Service" },
+  { value: "Oven", label: "Oven and Range Diagnostics" },
+  { value: "Microwave", label: "Microwave and Small Appliances" },
+  { value: "Refrigerator", label: "Refrigeration and Cooling" },
+  { value: "Sink Disposal", label: "Garbage Disposal Repair" },
+  { value: "Clothes Washer", label: "Washer and Laundry" },
+  { value: "Clothes Dryer", label: "Dryer and Venting" },
+  { value: "Basic Irrigation", label: "Irrigation and Outdoor Systems" },
+];
 
 // FixiT! specific diagnostic form schema
 const diagnosticRequestSchema = z.object({
-  problemType: z.string().min(1, "Problem type is required"),
+  problemType: z.enum(FIXIT_CATEGORY_VALUES, {
+    required_error: "Problem type is required",
+    invalid_type_error: "Problem type is required",
+  }),
   problemDescription: z.string().min(10, "Please provide a detailed description (at least 10 characters)"),
   urgencyLevel: z.enum(["low", "normal", "high", "emergency"]),
   estimatedHours: z.number().min(0.5, "Minimum 0.5 hours").max(8, "Maximum 8 hours per request"),
@@ -27,24 +64,13 @@ const diagnosticRequestSchema = z.object({
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   zipCode: z.string().min(5, "Valid ZIP code required"),
-  preferredTimeSlot: z.string().optional(),
+  preferredDateTime: z.string().optional(),
   symptoms: z.string().optional(),
   previousAttempts: z.string().optional(),
   memberNotes: z.string().optional(),
 });
 
 type DiagnosticRequestForm = z.infer<typeof diagnosticRequestSchema>;
-
-// Common problem types for FixiT! diagnostics
-const PROBLEM_TYPES = [
-  { value: "electrical", label: "Electrical Issues", icon: "⚡" },
-  { value: "plumbing", label: "Plumbing Problems", icon: "🚰" },
-  { value: "appliance", label: "Appliance Repair", icon: "🏠" },
-  { value: "hvac", label: "HVAC Systems", icon: "❄️" },
-  { value: "flooring", label: "Flooring & Tiles", icon: "🏗️" },
-  { value: "doors-windows", label: "Doors & Windows", icon: "🚪" },
-  { value: "general", label: "General Repairs", icon: "🔧" },
-];
 
 // Hourly rate calculator
 const calculateHourlyRate = (membershipTier: MembershipTier, baseRate: number = 75) => {
@@ -81,9 +107,9 @@ export default function FixiT() {
   });
 
   // User's FixiT! service requests
-  const { data: serviceRequests, isLoading: isLoadingRequests } = useQuery<ServiceRequestsResponse>({
-    queryKey: ["/api/service-requests"],
-    enabled: !!memberProfile,
+  const { data: serviceRequests = [], isLoading: isLoadingRequests } = useQuery<ServiceRequest[]>({
+    queryKey: ["/api/service-requests/by-member", memberProfile?.id ?? 'no-member'],
+    enabled: !!memberProfile?.id,
   });
 
   // Available technicians
@@ -95,7 +121,7 @@ export default function FixiT() {
   const form = useForm<DiagnosticRequestForm>({
     resolver: zodResolver(diagnosticRequestSchema),
     defaultValues: {
-      problemType: "",
+      problemType: FIXIT_CATEGORY_VALUES[0],
       problemDescription: "",
       urgencyLevel: "normal",
       estimatedHours: 1,
@@ -103,6 +129,7 @@ export default function FixiT() {
       city: "",
       state: "",
       zipCode: "",
+      preferredDateTime: "",
       symptoms: "",
       previousAttempts: "",
       memberNotes: "",
@@ -119,40 +146,51 @@ export default function FixiT() {
   // Create diagnostic request mutation
   const createDiagnosticRequest = useMutation({
     mutationFn: async (data: DiagnosticRequestForm) => {
+      if (!memberProfile?.id) {
+        throw new Error("Member profile is required to create a service request");
+      }
+      const preferredDateTimeISO = data.preferredDateTime ? new Date(data.preferredDateTime).toISOString() : undefined;
+
+      const selectedProblemType = PROBLEM_TYPES.find((type) => type.value === data.problemType);
+
+      const metadataEntries = Object.entries({
+        symptoms: data.symptoms?.trim(),
+        previousAttempts: data.previousAttempts?.trim(),
+        preferredDateTime: preferredDateTimeISO,
+        issueLabel: selectedProblemType?.label,
+      }).filter(([, value]) => value !== undefined && value !== null && value !== "");
+
+      const payload = {
+        memberId: memberProfile.id,
+        serviceType: "FixiT",
+        category: data.problemType,
+        title: `${selectedProblemType?.label ?? data.problemType} Diagnostic`,
+        description: data.problemDescription,
+        urgency: data.urgencyLevel,
+        address: data.address,
+        city: data.city,
+        state: data.state,
+        zipCode: data.zipCode,
+        estimatedDuration: Math.round(data.estimatedHours * 60),
+        ...(data.memberNotes ? { memberNotes: data.memberNotes } : {}),
+        ...(preferredDateTimeISO ? { preferredDateTime: preferredDateTimeISO } : {}),
+        ...(metadataEntries.length ? { serviceMetadata: Object.fromEntries(metadataEntries) } : {}),
+      };
+
       const response = await fetch("/api/service-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          memberId: memberProfile?.id,
-          serviceType: "FixiT",
-          category: data.problemType,
-          title: `${PROBLEM_TYPES.find(t => t.value === data.problemType)?.label} Diagnostic`,
-          description: data.problemDescription,
-          urgency: data.urgencyLevel,
-          address: data.address,
-          city: data.city,
-          state: data.state,
-          zipCode: data.zipCode,
-          estimatedDuration: data.estimatedHours * 60, // Convert to minutes
-          estimatedCost: totalCost.toFixed(2),
-          memberNotes: data.memberNotes,
-          serviceMetadata: {
-            symptoms: data.symptoms,
-            previousAttempts: data.previousAttempts,
-            preferredTimeSlot: data.preferredTimeSlot,
-            problemType: data.problemType,
-          },
-        }),
+        body: JSON.stringify(payload),
       });
-      
+
       if (!response.ok) {
         throw new Error("Failed to create diagnostic request");
       }
-      
+
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests/by-member", memberProfile?.id ?? "no-member"] });
       setIsDialogOpen(false);
       form.reset();
       toast({
@@ -199,7 +237,7 @@ export default function FixiT() {
     );
   }
 
-  const userRequests = serviceRequests?.requests?.filter((req: ServiceRequest) => req.serviceType === "FixiT") || [];
+  const userRequests = serviceRequests.filter((req: ServiceRequest) => req.serviceType === "FixiT");
 
   return (
     <div className="container mx-auto py-6">
@@ -247,10 +285,7 @@ export default function FixiT() {
                           <SelectContent>
                             {PROBLEM_TYPES.map((type) => (
                               <SelectItem key={type.value} value={type.value}>
-                                <div className="flex items-center space-x-2">
-                                  <span>{type.icon}</span>
-                                  <span>{type.label}</span>
-                                </div>
+                                {type.label}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -611,7 +646,7 @@ export default function FixiT() {
                     <div className="flex-1">
                       <CardTitle className="text-base">{request.title}</CardTitle>
                       <CardDescription className="mt-1">
-                        {PROBLEM_TYPES.find(t => t.value === request.category)?.label}
+                        {PROBLEM_TYPES.find((t) => t.value === request.category)?.label ?? request.category}
                       </CardDescription>
                     </div>
                     <Badge 

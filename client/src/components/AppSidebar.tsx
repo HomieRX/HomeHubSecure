@@ -84,8 +84,9 @@ export function AppSidebar() {
   const { data: currentUser } = useQuery({
     queryKey: ["/api/auth/user"]
   });
-  
-  const isAdmin = (currentUser as any)?.role === "admin";
+
+  const authUser = (currentUser as any)?.user ?? currentUser;
+  const isAdmin = authUser?.role === "admin";
 
   const toggleMenu = (title: string) => {
     setExpandedMenus(prev => 
