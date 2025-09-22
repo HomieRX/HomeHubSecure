@@ -3624,6 +3624,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Member-facing maintenance items (for members to browse PreventiT catalog)
+  app.get("/api/maintenance-items", isAuthenticated, async (req: any, res) => {
+    try {
+      const { maintenance } = await getStorageRepositories();
+      const items = await maintenance.getAllMaintenanceItems();
+      // Return only active items by default
+      const activeItems = items.filter((i: any) => i.isActive !== false);
+      res.json(activeItems);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/admin/maintenanceItems", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { maintenanceStorage } = await getAdminRepositories();

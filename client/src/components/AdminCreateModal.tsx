@@ -579,6 +579,23 @@ export default function AdminCreateModal({ isOpen, onClose, entityType, title }:
           transformedData[field] = null;
         }
       });
+
+      // Transform comma-separated fields into arrays for maintenanceItems
+      if (entityType === 'maintenanceItems') {
+        const arrayFields = ['requiredSkills', 'materialsNeeded', 'toolsNeeded'];
+        arrayFields.forEach(f => {
+          if (transformedData[f]) {
+            if (typeof transformedData[f] === 'string') {
+              transformedData[f] = transformedData[f]
+                .split(',')
+                .map((s: string) => s.trim())
+                .filter((s: string) => s.length > 0);
+            }
+          } else {
+            transformedData[f] = [];
+          }
+        });
+      }
       
       await createMutation.mutateAsync(transformedData);
     } finally {
@@ -2508,6 +2525,163 @@ function renderFormFields(form: any, entityType: EntityType, data: any) {
           />
         </>
       );
+
+      case "maintenanceItems":
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Name *</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Replace air filter" {...field} data-testid="input-name" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description *</FormLabel>
+                  <FormControl>
+                    <Textarea placeholder="Describe the maintenance task..." {...field} data-testid="textarea-description" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <FormControl>
+                      <Input placeholder="HVAC, Plumbing, Electrical" {...field} data-testid="input-category" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="estimatedMinutes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Estimated Minutes</FormLabel>
+                    <FormControl>
+                      <Input type="number" {...field} data-testid="input-estimatedMinutes" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="seasonalWindow"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Seasonal Window</FormLabel>
+                    <FormControl>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <SelectTrigger data-testid="select-seasonalWindow">
+                          <SelectValue placeholder="Select window" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={"Feb-Mar"}>Feb-Mar</SelectItem>
+                          <SelectItem value={"Jul-Aug"}>Jul-Aug</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="requiredSkills"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Required Skills (comma separated)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="electrical, plumbing" {...field} data-testid="input-requiredSkills" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="materialsNeeded"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Materials Needed (comma separated)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="filter, screws" {...field} data-testid="input-materialsNeeded" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="toolsNeeded"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tools Needed (comma separated)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="screwdriver, wrench" {...field} data-testid="input-toolsNeeded" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="safetyNotes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Safety Notes</FormLabel>
+                  <FormControl>
+                    <Textarea placeholder="Safety considerations..." {...field} data-testid="textarea-safetyNotes" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="instructions"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Instructions</FormLabel>
+                  <FormControl>
+                    <Textarea placeholder="Step-by-step instructions..." {...field} data-testid="textarea-instructions" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        );
 
     default:
       return <div>Form fields for {entityType} coming soon...</div>;

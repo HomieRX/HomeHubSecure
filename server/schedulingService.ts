@@ -12,7 +12,20 @@
   differenceInMinutes,
   isSameDay,
 } from "date-fns";
-import { utcToZonedTime, zonedTimeToUtc } from "date-fns-tz";
+// NOTE: `date-fns-tz` has an exports mismatch in some environments which can
+// crash the server at startup. For now provide lightweight synchronous stubs
+// so the server can boot for local smoke-testing. These stubs produce
+// approximate behavior and should be replaced with the real library import
+// (or a proper ESM/CJS interop) for production.
+const utcToZonedTime = (date: Date, _tz: string) => {
+  return new Date(date);
+};
+
+const zonedTimeToUtc = (isoLike: string, _tz: string) => {
+  // Try to parse an ISO-like string; fall back to Date constructor.
+  // This will treat the input as local/UTC depending on the string.
+  return new Date(isoLike);
+};
 import {
   type TimeSlot,
   type InsertTimeSlot,

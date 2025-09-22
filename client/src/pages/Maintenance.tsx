@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -68,41 +70,33 @@ export default function Maintenance() {
 
   // Mock data - in real app this would come from API
   const [maintenanceBundles, setMaintenanceBundles] = useState<MaintenanceBundle[]>([
-    {
-      id: '1',
-      name: 'Essential Home Care',
-      description: 'Basic preventive maintenance to keep your home running smoothly',
-      services: ['HVAC Filter Change', 'Gutter Cleaning', 'Smoke Detector Test', 'Water Heater Inspection'],
-      frequency: 'quarterly',
-      price: 199,
-      isActive: true,
-      nextScheduled: new Date(2025, 9, 15),
-      lastCompleted: new Date(2025, 7, 15),
-      completionRate: 95
-    },
-    {
-      id: '2',
-      name: 'Premium Protection',
-      description: 'Comprehensive maintenance program for optimal home performance',
-      services: ['HVAC Service', 'Plumbing Inspection', 'Electrical Check', 'Roof Inspection', 'Appliance Tune-up'],
-      frequency: 'biannual',
-      price: 449,
-      isActive: true,
-      nextScheduled: new Date(2025, 10, 1),
-      lastCompleted: new Date(2025, 5, 1),
-      completionRate: 88
-    },
-    {
-      id: '3',
-      name: 'Seasonal Prep',
-      description: 'Prepare your home for changing seasons',
-      services: ['Weatherproofing', 'Lawn Equipment Service', 'Pool Maintenance', 'Landscaping'],
-      frequency: 'biannual',
-      price: 299,
-      isActive: false,
-      completionRate: 0
-    }
   ]);
+
+  // Fetch maintenance items from server
+  const { data: fetchedItems } = useQuery({
+    queryKey: ['/api/maintenance-items'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/maintenance-items');
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Map fetched maintenance items to simple bundles for display when available
+  const itemsToDisplay = (fetchedItems || []).map((item: any) => ({
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    services: item.instructions ? [item.instructions.substring(0, 120)] : [],
+    frequency: 'biannual' as const,
+    price: 0,
+    isActive: item.isActive ?? true,
+    nextScheduled: undefined,
+    lastCompleted: undefined,
+    completionRate: 0
+  })) as MaintenanceBundle[];
+
+  const bundlesSource = itemsToDisplay.length > 0 ? itemsToDisplay : maintenanceBundles;
 
   const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([
     {
@@ -317,7 +311,7 @@ export default function Maintenance() {
 
         <TabsContent value="bundles" className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {maintenanceBundles.map((bundle) => (
+              {bundlesSource.map((bundle) => (
               <Card key={bundle.id} className={`hover-elevate cursor-pointer ${bundle.isActive ? 'ring-1 ring-primary' : ''}`}>
                 <CardHeader>
                   <div className="flex items-start justify-between">
