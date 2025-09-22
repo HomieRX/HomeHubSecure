@@ -3,7 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { AppSidebar } from "@/components/AppSidebar";
 import { PlatformHeader } from "@/components/PlatformHeader";
 import Services from "@/pages/Services";
@@ -117,44 +117,32 @@ function Router() {
 }
 
 function App() {
-  // Custom sidebar width for platform application
-  const style = {
-    "--sidebar-width": "16rem",       // 256px for better navigation
-    "--sidebar-width-icon": "4rem",   // default icon width
-  };
-
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Switch>
-          {/* Admin route with its own layout */}
-          <Route path="/admin" component={Admin} />
-          
-          {/* Registration routes with their own layout */}
-          <Route path="/register" component={RegistrationLanding} />
-          <Route path="/register/contractor" component={ContractorRegistration} />
-          <Route path="/register/merchant" component={MerchantRegistration} />
-          <Route path="/register/homehub" component={HomeHubRegistration} />
-          <Route path="/register/homepro" component={HomeProRegistration} />
-          <Route path="/register/homehero" component={HomeHeroRegistration} />
-          <Route path="/register/homeguru" component={HomeGuruRegistration} />
-          
-          {/* All other routes use the standard layout */}
-          <Route>
-            <SidebarProvider style={style as React.CSSProperties}>
-              <div className="flex h-screen w-full bg-background">
-                <AppSidebar />
-                <div className="flex flex-col flex-1 overflow-hidden">
-                  <PlatformHeader />
-                  <main className="flex-1 overflow-auto bg-background">
-                    <Router />
-                  </main>
-                </div>
-              </div>
-            </SidebarProvider>
-          </Route>
-        </Switch>
-        <Toaster />
+        <div className="min-h-screen bg-background font-sans antialiased">
+          <Switch>
+            {/* Admin route with its own layout */}
+            <Route path="/admin" component={Admin} />
+            
+            {/* Registration routes */}
+            <Route path="/register" component={RegistrationLanding} />
+            <Route path="/register/contractor" component={ContractorRegistration} />
+            <Route path="/register/merchant" component={MerchantRegistration} />
+            <Route path="/register/homehub" component={HomeHubRegistration} />
+            <Route path="/register/homepro" component={HomeProRegistration} />
+            <Route path="/register/homehero" component={HomeHeroRegistration} />
+            <Route path="/register/homeguru" component={HomeGuruRegistration} />
+            
+            {/* Default layout for all other routes */}
+            <Route>
+              <DashboardLayout>
+                <Router />
+              </DashboardLayout>
+            </Route>
+          </Switch>
+          <Toaster />
+        </div>
       </TooltipProvider>
     </QueryClientProvider>
   );
