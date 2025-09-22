@@ -14,6 +14,7 @@ import {
   pgEnum,
   index,
   unique,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -23,6 +24,8 @@ export const userRoleEnum = pgEnum("user_role", [
   "homeowner",
   "contractor",
   "merchant",
+  "manager",
+  "technician",
   "admin",
 ]);
 export const membershipTierEnum = pgEnum("membership_tier", [
@@ -834,7 +837,6 @@ export const forumTopics = pgTable("forum_topics", {
   uniqueSlug: unique("forum_topics_unique_slug").on(table.forumId, table.slug),
 }));
 
-// @ts-expect-error Drizzle self-referential table definition
 export const forumPosts = pgTable("forum_posts", {
   id: varchar("id")
     .primaryKey()
@@ -847,7 +849,7 @@ export const forumPosts = pgTable("forum_posts", {
     .references(() => forums.id, { onDelete: "cascade" }),
   
   // Post hierarchy
-  parentPostId: varchar("parent_post_id").references(() => forumPosts.id), // For threaded replies
+  parentPostId: varchar("parent_post_id").references((): AnyPgColumn => forumPosts.id), // For threaded replies
   postType: postTypeEnum("post_type").notNull().default("reply"),
   
   // Content
@@ -1507,6 +1509,8 @@ export const insertServiceRequestSchema = createInsertSchema(
   updatedAt: true,
 });
 
+
+
 export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({
   id: true,
   workOrderNumber: true,
@@ -1518,7 +1522,15 @@ export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({
   conflictOverrideAt: true, // System-managed field
   createdAt: true,
   updatedAt: true,
+}).extend({
+  hasSchedulingConflicts: z.boolean().optional(),
+  conflictOverrideReason: z.string().optional(),
+  conflictOverrideBy: z.string().optional(),
+  conflictOverrideAt: z.date().optional(),
+  status: z.enum(["created", "in_progress", "completed", "cancelled"]).optional(),
 });
+
+
 
 export const insertEstimateSchema = createInsertSchema(estimates).omit({
   id: true,
@@ -1691,6 +1703,7 @@ export const insertScheduleAuditLogSchema = createInsertSchema(scheduleAuditLog)
 // FORUM SYSTEM INSERT SCHEMAS
 // ===========================
 
+
 export const insertForumSchema = createInsertSchema(forums).omit({
   id: true,
   topicCount: true, // System-managed field
@@ -1709,15 +1722,23 @@ export const insertForumSchema = createInsertSchema(forums).omit({
   moderatorIds: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   rules: z.string().max(5000, "Rules must be less than 5000 characters").optional(),
+  topicCount: z.number().optional(),
+  postCount: z.number().optional(),
+  lastActivityAt: z.date().optional(),
+  lastTopicId: z.string().optional(),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
 });
+
+
 
 export const insertForumTopicSchema = createInsertSchema(forumTopics).omit({
   id: true,
   viewCount: true, // System-managed field
   postCount: true, // System-managed field
   participantCount: true, // System-managed field
-  lastPostId: true, // System-managed field
   lastPostAt: true, // System-managed field
+  lastPostId: true, // System-managed field
   lastPostAuthorId: true, // System-managed field
   acceptedAnswerId: true, // System-managed field
   createdAt: true,
@@ -1729,7 +1750,18 @@ export const insertForumTopicSchema = createInsertSchema(forumTopics).omit({
   bountyPoints: z.number().int().min(0, "Bounty points cannot be negative").optional(),
   tags: z.array(z.string()).optional(),
   metadata: z.record(z.any()).optional(),
+  viewCount: z.number().optional(),
+  postCount: z.number().optional(),
+  participantCount: z.number().optional(),
+  lastPostAt: z.date().optional(),
+  lastPostId: z.string().optional(),
+  lastPostAuthorId: z.string().optional(),
+  acceptedAnswerId: z.string().optional(),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
 });
+
+
 
 export const insertForumPostSchema = createInsertSchema(forumPosts).omit({
   id: true,
@@ -1755,7 +1787,17 @@ export const insertForumPostSchema = createInsertSchema(forumPosts).omit({
   images: z.array(z.string()).optional(),
   editReason: z.string().max(200, "Edit reason must be less than 200 characters").optional(),
   metadata: z.record(z.any()).optional(),
+  upvotes: z.number().optional(),
+  downvotes: z.number().optional(),
+  score: z.number().optional(),
+  replyCount: z.number().optional(),
+  isAcceptedAnswer: z.boolean().optional(),
+  acceptedAt: z.date().optional(),
+  acceptedBy: z.string().optional(),
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
 });
+
 
 export const insertForumPostVoteSchema = createInsertSchema(forumPostVotes).omit({
   id: true,
@@ -1993,3 +2035,5 @@ export type BundleNotification = typeof bundleNotifications.$inferSelect;
 
 // Performance Indexes for commonly queried fields
 // Note: These indexes improve query performance for frequently accessed data
+
+

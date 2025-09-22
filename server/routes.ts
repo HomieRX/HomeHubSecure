@@ -4,10 +4,10 @@ import Stripe from "stripe";
 import express from "express";
 import { getStorage } from "./storage";
 import { getStorageRepositories } from "./storage/repositories";
-import { 
-  setupAuth, 
-  isAuthenticated, 
-  requireRole, 
+import {
+  setupAuth,
+  isAuthenticated,
+  requireRole,
   requireOwnershipOrAdmin,
   csrfProtection,
   setCSRFToken,
@@ -34,6 +34,7 @@ import {
   insertMaintenanceItemSchema,
   type MemberProfile,
   type ContractorProfile,
+  type InsertContractorProfile,
   type MerchantProfile,
   type NotificationSettings,
   type InsertNotificationSettings,
@@ -42,8 +43,73 @@ import {
   type ForumTopic,
   type ForumPost,
   type ForumPostVote,
-  type InsertInvoice
+  type WorkOrder,
+  type InsertWorkOrder,
+  type InsertEstimate,
+  type InsertInvoice,
+  type InsertDeal,
+  type InsertCalendarEvent
 } from "@shared/schema";
+
+
+import {
+  ServiceRequestCreateSchema,
+  ServiceRequestUpdateSchema,
+  UserProfileUpdateSchema,
+  MemberProfileUpdateSchema,
+  ContractorProfileCreateSchema,
+  ContractorProfileUpdateSchema,
+  MerchantProfileCreateSchema,
+  MerchantProfileUpdateSchema,
+  WorkOrderCreateSchema,
+  WorkOrderUpdateSchema,
+  EstimateCreateSchema,
+  EstimateUpdateSchema,
+  InvoiceCreateSchema,
+  InvoiceUpdateSchema,
+  DealCreateSchema,
+  DealUpdateSchema,
+  MessageCreateSchema,
+  CalendarEventCreateSchema,
+  CalendarEventUpdateSchema,
+  ForumCreateSchema,
+  ForumUpdateSchema,
+  ForumTopicCreateSchema,
+  ForumTopicUpdateSchema,
+  ForumPostCreateSchema,
+  ForumPostUpdateSchema,
+  ForumVoteCreateSchema,
+  ForumFlagSchema,
+  ForumModerationSchema,
+  type ServiceRequestCreate,
+  type ServiceRequestUpdate,
+  type ContractorProfileCreate,
+  type ContractorProfileUpdate,
+  type MerchantProfileCreate,
+  type MerchantProfileUpdate,
+  type WorkOrderCreate,
+  type WorkOrderUpdate,
+  type EstimateCreate,
+  type EstimateUpdate,
+  type InvoiceCreate,
+  type InvoiceUpdate,
+  type DealCreate,
+  type DealUpdate,
+  type CalendarEventCreate,
+  type CalendarEventUpdate,
+  type ForumCreate,
+  type ForumUpdate,
+  type ForumTopicCreate,
+  type ForumTopicUpdate,
+  type ForumPostCreate,
+  type ForumPostUpdate,
+  type ForumVoteCreate,
+  type ForumFlag,
+  type ForumModeration
+} from "@shared/types";
+
+
+
 import { 
   ServiceWorkflowManager, 
   SERVICE_CONFIGS, 
@@ -67,17 +133,21 @@ import {
   type SlotBookingRequest,
   type AdminSlotOverrideRequest
 } from "./schedulingService";
-// ADD near top with imports
-import { ServiceRequestCreateSchema } from "@shared/types";
 // Note: scheduleOrThrow and PDF generation features would need implementation
 // Using placeholder implementations for now
 
 // Stripe Configuration - javascript_stripe integration
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2023-10-16',
-}) : null;
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2025-08-27.basil' as Stripe.LatestApiVersion,
+    })
+  : null;
 
-console.log(stripe ? '✅ Stripe initialized' : '⚠️  Stripe API key not configured - payment features disabled');
+console.log(
+  stripe
+    ? '[Stripe] Initialized with configured API key'
+    : '[Stripe] API key not configured - payment features disabled'
+);
 
 // SendGrid Configuration - javascript_sendgrid integration  
 import { MailService } from '@sendgrid/mail';
@@ -190,6 +260,399 @@ function sanitizeMerchantProfile(profile: MerchantProfile) {
     // PII fields removed: ownerName, phone, email, address, zipCode,
     // businessLicense, taxId
   };
+}
+
+function coerceDate(value?: string | Date | null): Date | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || value === "") {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function coerceDateOrUndefined(value?: string | Date | null): Date | undefined {
+  const result = coerceDate(value);
+  return result === null ? undefined : result;
+}
+
+function toDecimalString(value?: number | string | null): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  return typeof value === "number" ? value.toFixed(2) : value;
+}
+
+function normalizeWorkOrderCreate(data: WorkOrderCreate): InsertWorkOrder {
+  const normalized: Record<string, unknown> = { ...data };
+
+  normalized.contractorId = data.contractorId ?? null;
+  normalized.materialsNeeded = data.materialsNeeded ?? null;
+  normalized.laborHours = data.laborHours ?? null;
+  normalized.workNotes = data.workNotes ?? null;
+  normalized.beforeImages = data.beforeImages ?? null;
+  normalized.afterImages = data.afterImages ?? null;
+  normalized.attachments = data.attachments ?? null;
+
+  const scheduledStart = coerceDateOrUndefined(data.scheduledStartDate);
+  if (scheduledStart !== undefined) {
+    normalized.scheduledStartDate = scheduledStart;
+  } else {
+    delete normalized.scheduledStartDate;
+  }
+
+  const scheduledEnd = coerceDateOrUndefined(data.scheduledEndDate);
+  if (scheduledEnd !== undefined) {
+    normalized.scheduledEndDate = scheduledEnd;
+  } else {
+    delete normalized.scheduledEndDate;
+  }
+
+  return insertWorkOrderSchema.parse(normalized);
+}
+
+function normalizeWorkOrderUpdate(data: WorkOrderUpdate): Partial<InsertWorkOrder> {
+  const normalized: Record<string, unknown> = { ...data };
+
+  if (data.contractorId !== undefined) {
+    normalized.contractorId = data.contractorId ?? null;
+  }
+  if (data.materialsNeeded !== undefined) {
+    normalized.materialsNeeded = data.materialsNeeded ?? null;
+  }
+  if (data.laborHours !== undefined) {
+    normalized.laborHours = data.laborHours ?? null;
+  }
+  if (data.workNotes !== undefined) {
+    normalized.workNotes = data.workNotes ?? null;
+  }
+  if (data.beforeImages !== undefined) {
+    normalized.beforeImages = data.beforeImages ?? null;
+  }
+  if (data.afterImages !== undefined) {
+    normalized.afterImages = data.afterImages ?? null;
+  }
+  if (data.attachments !== undefined) {
+    normalized.attachments = data.attachments ?? null;
+  }
+  if (data.slotType !== undefined) {
+    normalized.slotType = data.slotType;
+  }
+  if (data.memberPreferredDates !== undefined) {
+    normalized.memberPreferredDates = data.memberPreferredDates ?? null;
+  }
+  if (data.hasSchedulingConflicts !== undefined) {
+    normalized.hasSchedulingConflicts = data.hasSchedulingConflicts;
+  }
+  if (data.conflictOverrideReason !== undefined) {
+    normalized.conflictOverrideReason = data.conflictOverrideReason ?? null;
+  }
+  if (data.conflictOverrideBy !== undefined) {
+    normalized.conflictOverrideBy = data.conflictOverrideBy ?? null;
+  }
+  if (data.conflictOverrideAt !== undefined) {
+    const overrideAt = coerceDate(data.conflictOverrideAt);
+    if (overrideAt === undefined) {
+      delete normalized.conflictOverrideAt;
+    } else {
+      normalized.conflictOverrideAt = overrideAt;
+    }
+  }
+
+  if (data.scheduledStartDate !== undefined) {
+    const scheduledStart = coerceDate(data.scheduledStartDate);
+    if (scheduledStart === undefined) {
+      delete normalized.scheduledStartDate;
+    } else {
+      normalized.scheduledStartDate = scheduledStart;
+    }
+  }
+
+  if (data.scheduledEndDate !== undefined) {
+    const scheduledEnd = coerceDate(data.scheduledEndDate);
+    if (scheduledEnd === undefined) {
+      delete normalized.scheduledEndDate;
+    } else {
+      normalized.scheduledEndDate = scheduledEnd;
+    }
+  }
+
+  return insertWorkOrderSchema.partial().parse(normalized);
+}
+
+function normalizeEstimateCreate(data: EstimateCreate): InsertEstimate {
+  const normalized: Record<string, unknown> = { ...data };
+
+  normalized.laborCost = toDecimalString(data.laborCost);
+  normalized.materialCost = toDecimalString(data.materialCost);
+  normalized.additionalCosts = toDecimalString(data.additionalCosts);
+  normalized.totalCost = toDecimalString(data.totalCost);
+
+  const estimatedHours = toDecimalString(data.estimatedHours);
+  if (estimatedHours !== undefined) {
+    normalized.estimatedHours = estimatedHours;
+  } else {
+    delete normalized.estimatedHours;
+  }
+
+  const startDate = coerceDateOrUndefined(data.startDate);
+  if (startDate !== undefined) {
+    normalized.startDate = startDate;
+  } else {
+    delete normalized.startDate;
+  }
+
+  const completionDate = coerceDateOrUndefined(data.completionDate);
+  if (completionDate !== undefined) {
+    normalized.completionDate = completionDate;
+  } else {
+    delete normalized.completionDate;
+  }
+
+  const validUntil = coerceDateOrUndefined(data.validUntil);
+  if (validUntil !== undefined) {
+    normalized.validUntil = validUntil;
+  } else {
+    delete normalized.validUntil;
+  }
+
+  return insertEstimateSchema.parse(normalized);
+}
+
+function normalizeEstimateUpdate(data: EstimateUpdate): Partial<InsertEstimate> {
+  const normalized: Record<string, unknown> = { ...data };
+
+  if (data.laborCost !== undefined) {
+    normalized.laborCost = toDecimalString(data.laborCost);
+  }
+  if (data.materialCost !== undefined) {
+    normalized.materialCost = toDecimalString(data.materialCost);
+  }
+  if (data.additionalCosts !== undefined) {
+    normalized.additionalCosts = toDecimalString(data.additionalCosts);
+  }
+  if (data.totalCost !== undefined) {
+    normalized.totalCost = toDecimalString(data.totalCost);
+  }
+  if (data.estimatedHours !== undefined) {
+    const estimatedHours = toDecimalString(data.estimatedHours);
+    if (estimatedHours !== undefined) {
+      normalized.estimatedHours = estimatedHours;
+    } else {
+      delete normalized.estimatedHours;
+    }
+  }
+  if (data.startDate !== undefined) {
+    const startDate = coerceDate(data.startDate);
+    if (startDate === undefined) {
+      delete normalized.startDate;
+    } else {
+      normalized.startDate = startDate;
+    }
+  }
+  if (data.completionDate !== undefined) {
+    const completionDate = coerceDate(data.completionDate);
+    if (completionDate === undefined) {
+      delete normalized.completionDate;
+    } else {
+      normalized.completionDate = completionDate;
+    }
+  }
+  if (data.validUntil !== undefined) {
+    const validUntil = coerceDate(data.validUntil);
+    if (validUntil === undefined) {
+      delete normalized.validUntil;
+    } else {
+      normalized.validUntil = validUntil;
+    }
+  }
+
+  return insertEstimateSchema.partial().parse(normalized);
+}
+
+function normalizeInvoiceCreate(data: InvoiceCreate): InsertInvoice {
+  const normalized: Record<string, unknown> = { ...data };
+
+  normalized.workOrderId = data.workOrderId ?? null;
+  normalized.subtotal = toDecimalString(data.subtotal);
+  normalized.tax = toDecimalString(data.tax);
+  normalized.total = toDecimalString(data.total);
+  normalized.amountDue = toDecimalString(data.amountDue);
+  normalized.loyaltyPointsValue = toDecimalString(data.loyaltyPointsValue);
+  normalized.loyaltyPointsUsed = data.loyaltyPointsUsed ?? 0;
+  normalized.loyaltyPointsEarned = data.loyaltyPointsEarned ?? 0;
+  normalized.paymentMethod = data.paymentMethod ?? null;
+  normalized.transactionId = data.paymentTransactionId ?? null;
+  normalized.notes = data.notes ?? null;
+
+  const dueDate = coerceDateOrUndefined(data.dueDate);
+  if (dueDate !== undefined) {
+    normalized.dueDate = dueDate;
+  } else {
+    delete normalized.dueDate;
+  }
+
+  delete normalized.paymentTransactionId;
+
+  return insertInvoiceSchema.parse(normalized);
+}
+
+function normalizeInvoiceUpdate(data: InvoiceUpdate): Partial<InsertInvoice> {
+  const normalized: Record<string, unknown> = { ...data };
+
+  if (data.subtotal !== undefined) {
+    normalized.subtotal = toDecimalString(data.subtotal);
+  }
+  if (data.tax !== undefined) {
+    normalized.tax = toDecimalString(data.tax);
+  }
+  if (data.total !== undefined) {
+    normalized.total = toDecimalString(data.total);
+  }
+  if (data.amountDue !== undefined) {
+    normalized.amountDue = toDecimalString(data.amountDue);
+  }
+  if (data.loyaltyPointsValue !== undefined) {
+    normalized.loyaltyPointsValue = toDecimalString(data.loyaltyPointsValue);
+  }
+  if (data.loyaltyPointsUsed !== undefined) {
+    normalized.loyaltyPointsUsed = data.loyaltyPointsUsed;
+  }
+  if (data.loyaltyPointsEarned !== undefined) {
+    normalized.loyaltyPointsEarned = data.loyaltyPointsEarned;
+  }
+  if (data.paymentMethod !== undefined) {
+    normalized.paymentMethod = data.paymentMethod ?? null;
+  }
+  if (data.paymentTransactionId !== undefined) {
+    normalized.transactionId = data.paymentTransactionId ?? null;
+  }
+  if (data.notes !== undefined) {
+    normalized.notes = data.notes ?? null;
+  }
+  if (data.dueDate !== undefined) {
+    const dueDate = coerceDate(data.dueDate);
+    if (dueDate === undefined) {
+      delete normalized.dueDate;
+    } else {
+      normalized.dueDate = dueDate;
+    }
+  }
+
+  delete normalized.paymentTransactionId;
+
+  return insertInvoiceSchema.partial().parse(normalized);
+}
+
+function normalizeDealCreate(data: DealCreate): InsertDeal {
+  const normalized: Record<string, unknown> = { ...data };
+
+  normalized.discountValue = toDecimalString(data.discountValue);
+  if (data.originalPrice !== undefined) {
+    normalized.originalPrice = toDecimalString(data.originalPrice);
+  }
+  if (data.finalPrice !== undefined) {
+    normalized.finalPrice = toDecimalString(data.finalPrice);
+  }
+
+  const validFrom = coerceDateOrUndefined(data.validFrom);
+  if (validFrom !== undefined) {
+    normalized.validFrom = validFrom;
+  } else {
+    delete normalized.validFrom;
+  }
+
+  const validUntil = coerceDateOrUndefined(data.validUntil);
+  if (validUntil !== undefined) {
+    normalized.validUntil = validUntil;
+  } else {
+    delete normalized.validUntil;
+  }
+
+  return insertDealSchema.parse(normalized);
+}
+
+function normalizeDealUpdate(data: DealUpdate): Partial<InsertDeal> {
+  const normalized: Record<string, unknown> = { ...data };
+
+  if (data.discountValue !== undefined) {
+    normalized.discountValue = toDecimalString(data.discountValue);
+  }
+  if (data.originalPrice !== undefined) {
+    normalized.originalPrice = toDecimalString(data.originalPrice);
+  }
+  if (data.finalPrice !== undefined) {
+    normalized.finalPrice = toDecimalString(data.finalPrice);
+  }
+  if (data.validFrom !== undefined) {
+    const validFrom = coerceDate(data.validFrom);
+    if (validFrom === undefined) {
+      delete normalized.validFrom;
+    } else {
+      normalized.validFrom = validFrom;
+    }
+  }
+  if (data.validUntil !== undefined) {
+    const validUntil = coerceDate(data.validUntil);
+    if (validUntil === undefined) {
+      delete normalized.validUntil;
+    } else {
+      normalized.validUntil = validUntil;
+    }
+  }
+
+  return insertDealSchema.partial().parse(normalized);
+}
+
+function normalizeCalendarEventCreate(data: CalendarEventCreate): InsertCalendarEvent {
+  const normalized: Record<string, unknown> = { ...data };
+
+  const startTime = coerceDateOrUndefined(data.startTime);
+  if (startTime !== undefined) {
+    normalized.startTime = startTime;
+  } else {
+    delete normalized.startTime;
+  }
+
+  const endTime = coerceDateOrUndefined(data.endTime);
+  if (endTime !== undefined) {
+    normalized.endTime = endTime;
+  } else {
+    delete normalized.endTime;
+  }
+
+  return insertCalendarEventSchema.parse(normalized);
+}
+
+function normalizeCalendarEventUpdate(
+  data: CalendarEventUpdate,
+): Partial<InsertCalendarEvent> {
+  const normalized: Record<string, unknown> = { ...data };
+
+  if (data.startTime !== undefined) {
+    const startTime = coerceDate(data.startTime);
+    if (startTime === undefined) {
+      delete normalized.startTime;
+    } else {
+      normalized.startTime = startTime;
+    }
+  }
+
+  if (data.endTime !== undefined) {
+    const endTime = coerceDate(data.endTime);
+    if (endTime === undefined) {
+      delete normalized.endTime;
+    } else {
+      normalized.endTime = endTime;
+    }
+  }
+
+  return insertCalendarEventSchema.partial().parse(normalized);
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -694,7 +1157,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const processedData = {
         ...validatedData,
-        licenseExpiryDate: validatedData.licenseExpiryDate ? new Date(validatedData.licenseExpiryDate) : undefined,
+        licenseExpiryDate: new Date(validatedData.licenseExpiryDate),
+        insuranceExpiryDate: new Date(validatedData.insuranceExpiryDate),
       };
 
       const profile = await contractorStorage.createContractorProfile(processedData);
@@ -714,12 +1178,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { contractorStorage } = await getDirectoryRepositories();
       const validatedData = ContractorProfileUpdateSchema.parse(req.body);
-      const profile = await contractorStorage.updateContractorProfile(req.params.id, validatedData);
+      const {
+        licenseExpiryDate,
+        insuranceExpiryDate,
+        hourlyRate,
+        bondingAmount,
+        ...rest
+      } = validatedData;
+
+      const updatePayload: Partial<InsertContractorProfile> = { ...rest };
+
+      if (licenseExpiryDate) {
+        updatePayload.licenseExpiryDate = new Date(licenseExpiryDate);
+      }
+      if (insuranceExpiryDate) {
+        updatePayload.insuranceExpiryDate = new Date(insuranceExpiryDate);
+      }
+      if (hourlyRate !== undefined) {
+        updatePayload.hourlyRate = Number(hourlyRate).toFixed(2);
+      }
+      if (bondingAmount !== undefined) {
+        updatePayload.bondingAmount = Number(bondingAmount).toFixed(2);
+      }
+
+      const profile = await contractorStorage.updateContractorProfile(req.params.id, updatePayload);
       if (!profile) {
         return res.status(404).json({ error: "Contractor profile not found" });
       }
       res.json(profile);
     } catch (error: any) {
+      console.error("Contractor update error:", error);
       if (error.name === 'ZodError') {
         return res.status(400).json({ error: "Invalid contractor profile data", details: error.errors });
       }
@@ -1115,10 +1603,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Service type is required" });
       }
 
+      const baseRequest = insertServiceRequestSchema.parse({
+        memberId: validatedData.memberId,
+        serviceType: validatedData.serviceType,
+        category: validatedData.category,
+        title: validatedData.title,
+        description: validatedData.description,
+        urgency: validatedData.urgency ?? "normal",
+        address: validatedData.address,
+        city: validatedData.city,
+        state: validatedData.state,
+        zipCode: validatedData.zipCode,
+        preferredDateTime: validatedData.preferredDateTime ? new Date(validatedData.preferredDateTime) : undefined,
+        estimatedDuration: validatedData.estimatedDuration,
+        requiredSkills: validatedData.requiredSkills,
+        memberNotes: validatedData.memberNotes,
+        images: validatedData.images,
+        serviceMetadata: validatedData.serviceMetadata,
+      });
+
       const validation = ServiceWorkflowManager.validateServiceRequest(
         validatedData.serviceType as ServiceType,
         memberProfile.membershipTier,
-        validatedData
+        baseRequest
       );
 
       if (!validation.isValid) {
@@ -1130,7 +1637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const processedData = ServiceWorkflowManager.processServiceRequest(
         validatedData.serviceType as ServiceType,
-        validatedData,
+        baseRequest,
         memberProfile.membershipTier
       );
 
@@ -1379,7 +1886,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if user is the contractor, service requester, or admin
-      const contractorProfile = await (await getStorage()).getContractorProfile(workOrder.contractorId);
+      const contractorProfile = workOrder.contractorId
+        ? await (await getStorage()).getContractorProfile(workOrder.contractorId)
+        : null;
       const serviceRequest = await (await getStorage()).getServiceRequest(workOrder.serviceRequestId);
       const memberProfile = serviceRequest ? await (await getStorage()).getMemberProfile(serviceRequest.memberId) : null;
       
@@ -1471,7 +1980,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/work-orders", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = WorkOrderCreateSchema.parse(req.body);
-      const workOrder = await (await getStorage()).createWorkOrder(validatedData);
+      const workOrderInput = normalizeWorkOrderCreate(validatedData);
+      const workOrder = await (await getStorage()).createWorkOrder(workOrderInput);
       res.status(201).json(workOrder);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -1483,8 +1993,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/work-orders/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
-      const validatedData = insertWorkOrderSchema.partial().parse(req.body);
-      const workOrder = await (await getStorage()).updateWorkOrder(req.params.id, validatedData);
+      const validatedData = WorkOrderUpdateSchema.parse(req.body);
+      const workOrderUpdates = normalizeWorkOrderUpdate(validatedData);
+      const workOrder = await (await getStorage()).updateWorkOrder(req.params.id, workOrderUpdates);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
@@ -1600,7 +2111,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/estimates", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = EstimateCreateSchema.parse(req.body);
-      const estimate = await (await getStorage()).createEstimate(validatedData);
+      const estimateInput = normalizeEstimateCreate(validatedData);
+      const estimate = await (await getStorage()).createEstimate(estimateInput);
       res.status(201).json(estimate);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -1613,7 +2125,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/estimates/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = EstimateUpdateSchema.parse(req.body);
-      const estimate = await (await getStorage()).updateEstimate(req.params.id, validatedData);
+      const estimateChanges = normalizeEstimateUpdate(validatedData);
+      const estimate = await (await getStorage()).updateEstimate(req.params.id, estimateChanges);
       if (!estimate) {
         return res.status(404).json({ error: "Estimate not found" });
       }
@@ -1695,8 +2208,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check if user is the member being invoiced, the contractor who created it, or admin
       const memberProfile = await (await getStorage()).getMemberProfile(invoice.memberId);
-      const workOrder = await (await getStorage()).getWorkOrder(invoice.workOrderId);
-      const contractorProfile = workOrder ? await (await getStorage()).getContractorProfile(workOrder.contractorId) : null;
+      const workOrder = invoice.workOrderId
+        ? await (await getStorage()).getWorkOrder(invoice.workOrderId)
+        : null;
+      const contractorProfile = workOrder?.contractorId
+        ? await (await getStorage()).getContractorProfile(workOrder.contractorId)
+        : null;
       
       const isMember = memberProfile?.userId === currentUser.id;
       const isContractor = contractorProfile?.userId === currentUser.id;
@@ -1748,7 +2265,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if user is the contractor or service requester, or admin
-      const contractorProfile = await (await getStorage()).getContractorProfile(workOrder.contractorId);
+      const contractorProfile = workOrder.contractorId
+        ? await (await getStorage()).getContractorProfile(workOrder.contractorId)
+        : null;
       const serviceRequest = await (await getStorage()).getServiceRequest(workOrder.serviceRequestId);
       const memberProfile = serviceRequest ? await (await getStorage()).getMemberProfile(serviceRequest.memberId) : null;
       
@@ -1769,7 +2288,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/invoices", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = InvoiceCreateSchema.parse(req.body);
-      const invoice = await (await getStorage()).createInvoice(validatedData);
+      const invoiceInput = normalizeInvoiceCreate(validatedData);
+      const invoice = await (await getStorage()).createInvoice(invoiceInput);
       res.status(201).json(invoice);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -1782,7 +2302,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/invoices/:id", isAuthenticated, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const validatedData = InvoiceUpdateSchema.parse(req.body);
-      const invoice = await (await getStorage()).updateInvoice(req.params.id, validatedData);
+      const invoiceChanges = normalizeInvoiceUpdate(validatedData);
+      const invoice = await (await getStorage()).updateInvoice(req.params.id, invoiceChanges);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
       }
@@ -1933,8 +2454,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // If invoice has a contractor, notify them too
           if (invoice.workOrderId) {
             const workOrder = await (await getStorage()).getWorkOrder(invoice.workOrderId);
-            if (workOrder?.contractorId) {
-              const contractorProfile = await (await getStorage()).getContractorProfile(workOrder.contractorId);
+            const contractorId = workOrder?.contractorId;
+            if (contractorId) {
+              const contractorProfile = await (await getStorage()).getContractorProfile(contractorId);
               if (contractorProfile?.email) {
                 await sendPaymentNotificationEmail(
                   contractorProfile.email,
@@ -2139,7 +2661,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/deals", isAuthenticated, requireRole(["admin", "merchant"]), async (req: any, res) => {
     try {
       const validatedData = DealCreateSchema.parse(req.body);
-      const deal = await (await getStorage()).createDeal(validatedData);
+      const dealInput = normalizeDealCreate(validatedData);
+      const deal = await (await getStorage()).createDeal(dealInput);
       res.status(201).json(deal);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2152,7 +2675,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/deals/:id", isAuthenticated, requireOwnershipOrAdmin(), async (req: any, res) => {
     try {
       const validatedData = DealUpdateSchema.parse(req.body);
-      const deal = await (await getStorage()).updateDeal(req.params.id, validatedData);
+      const dealChanges = normalizeDealUpdate(validatedData);
+      const deal = await (await getStorage()).updateDeal(req.params.id, dealChanges);
       if (!deal) {
         return res.status(404).json({ error: "Deal not found" });
       }
@@ -2477,6 +3001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userStorage, calendarStorage } = await getCalendarRepositories();
       const validatedData = CalendarEventCreateSchema.parse(req.body);
+      const eventInput = normalizeCalendarEventCreate(validatedData);
 
       const currentUserId = String(req.user.claims.sub);
       if (validatedData.userId !== currentUserId) {
@@ -2486,7 +3011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const event = await calendarStorage.createCalendarEvent(validatedData);
+      const event = await calendarStorage.createCalendarEvent(eventInput);
       res.status(201).json(event);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2502,7 +3027,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { calendarStorage } = await getCalendarRepositories();
       const validatedData = CalendarEventUpdateSchema.parse(req.body);
-      const event = await calendarStorage.updateCalendarEvent(req.params.id, validatedData);
+      const eventChanges = normalizeCalendarEventUpdate(validatedData);
+      const event = await calendarStorage.updateCalendarEvent(req.params.id, eventChanges);
       if (!event) {
         return res.status(404).json({ error: "Calendar event not found" });
       }
@@ -2907,8 +3433,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/workOrders", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { workOrderStorage } = await getAdminRepositories();
-      const validatedData = insertWorkOrderSchema.parse(req.body);
-      const workOrder = await workOrderStorage.createWorkOrder(validatedData);
+      const validatedData = WorkOrderCreateSchema.parse(req.body);
+      const workOrderInput = normalizeWorkOrderCreate(validatedData);
+      const workOrder = await workOrderStorage.createWorkOrder(workOrderInput);
       res.status(201).json(workOrder);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2921,8 +3448,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/workOrders/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { workOrderStorage } = await getAdminRepositories();
-      const validatedData = insertWorkOrderSchema.partial().parse(req.body);
-      const workOrder = await workOrderStorage.updateWorkOrder(req.params.id, validatedData);
+      const validatedData = WorkOrderUpdateSchema.parse(req.body);
+      const workOrderUpdates = normalizeWorkOrderUpdate(validatedData);
+      const workOrder = await workOrderStorage.updateWorkOrder(req.params.id, workOrderUpdates);
       if (!workOrder) {
         return res.status(404).json({ error: "Work order not found" });
       }
@@ -2949,8 +3477,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/estimates", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { estimateStorage } = await getAdminRepositories();
-      const validatedData = insertEstimateSchema.parse(req.body);
-      const estimate = await estimateStorage.createEstimate(validatedData);
+      const validatedData = EstimateCreateSchema.parse(req.body);
+      const estimateInput = normalizeEstimateCreate(validatedData);
+      const estimate = await estimateStorage.createEstimate(estimateInput);
       res.status(201).json(estimate);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -2963,8 +3492,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/estimates/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { estimateStorage } = await getAdminRepositories();
-      const validatedData = insertEstimateSchema.partial().parse(req.body);
-      const estimate = await estimateStorage.updateEstimate(req.params.id, validatedData);
+      const validatedData = EstimateUpdateSchema.parse(req.body);
+      const estimateChanges = normalizeEstimateUpdate(validatedData);
+      const estimate = await estimateStorage.updateEstimate(req.params.id, estimateChanges);
       if (!estimate) {
         return res.status(404).json({ error: "Estimate not found" });
       }
@@ -2991,8 +3521,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/invoices", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { invoiceStorage } = await getAdminRepositories();
-      const validatedData = insertInvoiceSchema.parse(req.body);
-      const invoice = await invoiceStorage.createInvoice(validatedData);
+      const validatedData = InvoiceCreateSchema.parse(req.body);
+      const invoiceInput = normalizeInvoiceCreate(validatedData);
+      const invoice = await invoiceStorage.createInvoice(invoiceInput);
       res.status(201).json(invoice);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -3005,8 +3536,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/invoices/:id", isAuthenticated, requireRole(["admin"]), async (req: any, res) => {
     try {
       const { invoiceStorage } = await getAdminRepositories();
-      const validatedData = insertInvoiceSchema.partial().parse(req.body);
-      const invoice = await invoiceStorage.updateInvoice(req.params.id, validatedData);
+      const validatedData = InvoiceUpdateSchema.parse(req.body);
+      const invoiceChanges = normalizeInvoiceUpdate(validatedData);
+      const invoice = await invoiceStorage.updateInvoice(req.params.id, invoiceChanges);
       if (!invoice) {
         return res.status(404).json({ error: "Invoice not found" });
       }
@@ -3034,7 +3566,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { dealStorage } = await getAdminRepositories();
       const validatedData = DealCreateSchema.parse(req.body);
-      const deal = await dealStorage.createDeal(validatedData);
+      const dealInput = normalizeDealCreate(validatedData);
+      const deal = await dealStorage.createDeal(dealInput);
       res.status(201).json(deal);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -3048,7 +3581,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { dealStorage } = await getAdminRepositories();
       const validatedData = DealUpdateSchema.parse(req.body);
-      const deal = await dealStorage.updateDeal(req.params.id, validatedData);
+      const dealChanges = normalizeDealUpdate(validatedData);
+      const deal = await dealStorage.updateDeal(req.params.id, dealChanges);
       if (!deal) {
         return res.status(404).json({ error: "Deal not found" });
       }
@@ -3120,7 +3654,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { calendarStorage } = await getAdminRepositories();
       const validatedData = CalendarEventCreateSchema.parse(req.body);
-      const event = await calendarStorage.createCalendarEvent(validatedData);
+      const eventInput = normalizeCalendarEventCreate(validatedData);
+      const event = await calendarStorage.createCalendarEvent(eventInput);
       res.status(201).json(event);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -3134,7 +3669,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { calendarStorage } = await getAdminRepositories();
       const validatedData = CalendarEventUpdateSchema.parse(req.body);
-      const event = await calendarStorage.updateCalendarEvent(req.params.id, validatedData);
+      const eventChanges = normalizeCalendarEventUpdate(validatedData);
+      const event = await calendarStorage.updateCalendarEvent(req.params.id, eventChanges);
       if (!event) {
         return res.status(404).json({ error: "Calendar event not found" });
       }
@@ -3517,18 +4053,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const objectStorageService = new ObjectStorageService();
 
   // Upload files endpoint - supports multiple files
-  app.post('/api/uploads', isAuthenticated, uploadMiddleware.array('files', 5), async (req: FileUploadRequest, res) => {
+  app.post('/api/uploads', isAuthenticated, uploadMiddleware.array('files', 5), async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const uploadReq = req as FileUploadRequest;
+      const userId = uploadReq.user?.claims?.sub;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+      const files = uploadReq.files;
+      if (!files || !Array.isArray(files) || files.length === 0) {
         return res.status(400).json({ error: "No files provided" });
       }
 
-      const uploadedFiles = await uploadService.uploadFiles(req.files, userId);
+      const uploadedFiles = await uploadService.uploadFiles(files, userId);
       
       res.json({
         message: "Files uploaded successfully",
@@ -3722,7 +4260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check access permissions
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -3777,7 +4315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check access permissions
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -3826,7 +4364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/work-orders/scheduled", isAuthenticated, csrfProtection, requireRole(["admin", "contractor"]), async (req: any, res) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -3863,16 +4401,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      const preferredDates = Array.isArray(memberPreferredDates)
+        ? memberPreferredDates.map((date: string) => String(date))
+        : undefined;
+
       const bookingRequest: SlotBookingRequest = {
         contractorId,
         startTime: new Date(scheduledStartDate),
         endTime: new Date(scheduledEndDate),
         slotType: slotType || 'standard',
         workOrderId: `temp_${Date.now()}`, // Temporary ID for validation
-        memberPreferredDates: memberPreferredDates?.map((date: string) => new Date(date))
       };
 
-      // Check for conflicts unless admin override is specified
+      if (adminOverride) {
+        bookingRequest.adminOverride = true;
+        bookingRequest.overrideBy = currentUser.id;
+        bookingRequest.overrideReason = overrideReason ?? 'Admin scheduling override';
+      }
+
       if (!adminOverride) {
         const conflicts = await schedulingService.detectConflicts(bookingRequest);
         if (conflicts.length > 0) {
@@ -3884,26 +4430,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Create work order with scheduling information
-      const workOrderData = {
+      const { serviceRequests: serviceRequestStorage } = await getStorageRepositories();
+      const serviceRequest = await serviceRequestStorage.getServiceRequest(serviceRequestId);
+      if (!serviceRequest) {
+        return res.status(404).json({ error: "Service request not found" });
+      }
+      if (!serviceRequest.homeManagerId) {
+        return res.status(400).json({ error: "Service request is missing an assigned home manager" });
+      }
+
+      const workDescriptionSource =
+        typeof description === 'string' && description.trim().length >= 10
+          ? description.trim()
+          : serviceRequest.description;
+      const workDescription = workDescriptionSource ?? 'Scheduled work order';
+
+      const workOrderCreatePayload: WorkOrderCreate = {
         serviceRequestId,
+        homeManagerId: serviceRequest.homeManagerId,
         contractorId,
-        description,
-        estimatedDuration,
-        actualDuration,
-        status: status || "created",
-        completionNotes,
-        scheduledStartDate: new Date(scheduledStartDate),
-        scheduledEndDate: new Date(scheduledEndDate),
-        slotType: slotType || 'standard',
-        memberPreferredDates: memberPreferredDates?.map((date: string) => new Date(date)),
-        hasSchedulingConflicts: adminOverride, // Mark if admin override was used
-        adminOverride: adminOverride,
-        adminOverrideReason: adminOverride ? overrideReason : null,
-        adminOverrideBy: adminOverride ? currentUser.id : null
+        workOrderNumber: `WO-${Date.now()}`,
+        workDescription,
+        scheduledStartDate,
+        scheduledEndDate,
       };
 
-      const workOrder = await schedulingRepos.workOrderStorage.createWorkOrder(workOrderData);
+      const workOrderInsert = normalizeWorkOrderCreate(workOrderCreatePayload);
+      let workOrder = await schedulingRepos.workOrderStorage.createWorkOrder(workOrderInsert);
+
+      const updateInput: WorkOrderUpdate = {
+        scheduledStartDate,
+        scheduledEndDate,
+        slotType: slotType || 'standard',
+        memberPreferredDates: preferredDates,
+        hasSchedulingConflicts: adminOverride ? true : undefined,
+        conflictOverrideReason: adminOverride ? overrideReason ?? undefined : undefined,
+        conflictOverrideBy: adminOverride ? currentUser.id : undefined,
+        conflictOverrideAt: adminOverride ? new Date().toISOString() : undefined,
+        status: status,
+      };
+      const workOrderUpdates = normalizeWorkOrderUpdate(updateInput);
+      if (Object.keys(workOrderUpdates).length > 0) {
+        await schedulingRepos.workOrderStorage.updateWorkOrder(workOrder.id, workOrderUpdates);
+        const latest = await schedulingRepos.workOrderStorage.getWorkOrder(workOrder.id);
+        if (latest) {
+          workOrder = latest;
+        }
+      }
 
       // If admin override was used, handle the override process
       if (adminOverride && currentUser.role === "admin") {
@@ -3950,7 +4523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/schedule-override", isAuthenticated, csrfProtection, requireRole(["admin"]), async (req: any, res) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -4007,9 +4580,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         scheduledStartDate: new Date(startTime),
         scheduledEndDate: new Date(endTime),
         hasSchedulingConflicts: true,
-        adminOverride: true,
-        adminOverrideReason: overrideReason.trim(),
-        adminOverrideBy: currentUser.id
+        conflictOverrideReason: overrideReason.trim(),
+        conflictOverrideBy: currentUser.id,
+        conflictOverrideAt: new Date()
       });
 
       res.json({
@@ -4040,7 +4613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id: contractorId } = req.params;
       const { includeResolved = "false" } = req.query;
 
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -4091,7 +4664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
@@ -4137,7 +4710,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // FORUM SYSTEM ENDPOINTS
   // ======================================================================
 
-  async function getForumRepositories() {
+  async function getForumRepositories(): Promise<any> {
     const {
       users,
       members,
@@ -4203,6 +4776,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!currentUser) {
         return res.status(401).json({ error: "User not found" });
       }
+
+      const forumRepos = await getForumRepositories();
 
       const { 
         type, 
@@ -4347,8 +4922,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const forumRepos = await getForumRepositories();
       const { forumId } = req.params;
-      const { 
-        limit = "20", 
+      const {
+        limit = "20",
         offset = "0",
         sort = "lastActivity", // lastActivity, created, title, votes
         status,
@@ -4371,18 +4946,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const topics = await forumRepos.topicStorage.getForumTopics({
-        forumId,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-        sort,
-        status,
-        isPinned: isPinned === "true" ? true : undefined,
-        searchTerm: search
+      let topics = (await forumRepos.topicStorage.getForumTopics(forumId)) as ForumTopic[];
+
+      if (status) {
+        topics = topics.filter(topic => topic.status === status);
+      }
+
+      const pinnedFilter = typeof isPinned === 'string' ? (isPinned === 'true') : undefined;
+      if (pinnedFilter !== undefined) {
+        topics = topics.filter(topic => topic.isPinned === pinnedFilter);
+      }
+
+      if (search) {
+        const searchTerm = String(search).toLowerCase();
+        topics = topics.filter(topic =>
+          topic.title.toLowerCase().includes(searchTerm) ||
+          (topic.description ?? '').toLowerCase().includes(searchTerm)
+        );
+      }
+
+      const sortKey = String(sort ?? 'lastActivity');
+      topics.sort((a, b) => {
+        switch (sortKey) {
+          case 'created':
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          case 'title':
+            return a.title.localeCompare(b.title);
+          case 'votes':
+            return (b.postCount || 0) - (a.postCount || 0);
+          case 'lastActivity':
+          default:
+            return new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime();
+        }
       });
 
+      const limitNum = Number.parseInt(String(limit), 10) || 20;
+      const offsetNum = Number.parseInt(String(offset), 10) || 0;
+      const totalTopics = topics.length;
+      const paginatedTopics = topics.slice(offsetNum, offsetNum + limitNum);
+
       res.json({
-        topics,
+        topics: paginatedTopics,
         forum: {
           id: forum.id,
           name: forum.name,
@@ -4390,9 +4994,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           forumType: forum.forumType
         },
         pagination: {
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          total: topics.length
+          limit: limitNum,
+          offset: offsetNum,
+          total: totalTopics
         }
       });
     } catch (error: any) {
@@ -4923,9 +5527,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update post vote counts
-      const votes = await forumRepos.voteStorage.getPostVotes(postId);
-      const upvotes = votes.filter(v => v.voteType === 'up').length;
-      const downvotes = votes.filter(v => v.voteType === 'down').length;
+      const votes = (await forumRepos.voteStorage.getPostVotes(postId)) as ForumPostVote[];
+      const upvotes = votes.filter((v: ForumPostVote) => v.voteType === 'up').length;
+      const downvotes = votes.filter((v: ForumPostVote) => v.voteType === 'down').length;
       
       await forumRepos.postStorage.updateForumPost(postId, {
         upvotes,
@@ -4963,9 +5567,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await forumRepos.voteStorage.removePostVote(postId, currentUser.id);
 
       // Update post vote counts
-      const votes = await forumRepos.voteStorage.getPostVotes(postId);
-      const upvotes = votes.filter(v => v.voteType === 'up').length;
-      const downvotes = votes.filter(v => v.voteType === 'down').length;
+      const votes = (await forumRepos.voteStorage.getPostVotes(postId)) as ForumPostVote[];
+      const upvotes = votes.filter((v: ForumPostVote) => v.voteType === 'up').length;
+      const downvotes = votes.filter((v: ForumPostVote) => v.voteType === 'down').length;
       
       await forumRepos.postStorage.updateForumPost(postId, {
         upvotes,
@@ -5149,15 +5753,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/appointments/:id/confirm', isAuthenticated, requireRole(['admin','manager']), async (req, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const id = Number(req.params.id);
-      const { homeManagerId, start, end } = req.body as { homeManagerId: number; start: string; end: string };
-      
-      // Update work order with scheduling details
+      const id = req.params.id;
+      const { homeManagerId, start, end } = req.body as { homeManagerId: string; start: string; end: string };
+
       await schedulingRepos.workOrderStorage.updateWorkOrder(id, {
-        homeManagerId,
+        homeManagerId: String(homeManagerId),
         scheduledStartDate: new Date(start),
         scheduledEndDate: new Date(end),
-        status: 'scheduled'
+        status: 'in_progress'
       });
       
       res.json({ ok: true });
@@ -5168,7 +5771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/appointments/:id/reschedule', isAuthenticated, async (req, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const id = Number(req.params.id);
+      const id = req.params.id;
       const { start, end } = req.body as { start: string; end: string };
 
       const workOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
@@ -5176,7 +5779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!wo) return res.status(404).json({ error: 'Not found' });
 
       const hrsUntil = wo.scheduledStartDate ? (wo.scheduledStartDate.getTime() - Date.now()) / 36e5 : 0;
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
       if (hrsUntil < 48 && !isPrivileged) {
@@ -5198,13 +5801,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/appointments/:id/cancel', isAuthenticated, async (req: any, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const id = Number(req.params.id);
+      const id = req.params.id;
       const workOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
       const wo = workOrders.find(wo => wo.id === id);
       if (!wo) return res.status(404).json({ error: 'Not found' });
 
       const hrsUntil = wo.scheduledStartDate ? (wo.scheduledStartDate.getTime() - Date.now()) / 36e5 : 0;
-      const currentUser = await schedulingRepos.userStorage.getUser(req.user.claims.sub);
+      const currentUser = await schedulingRepos.userStorage.getUser((req as any).user?.claims?.sub);
       const isPrivileged = currentUser?.role === 'admin' || currentUser?.role === 'manager';
       if (hrsUntil < 48 && !isPrivileged) {
         return res.status(403).json({ error: 'Cancel requires approval inside 48 hours' });
@@ -5223,18 +5826,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/ops/manager/today', isAuthenticated, requireRole(['manager','admin']), async (req: any, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const managerId = req.user.role === 'manager' ? req.user.id : Number(req.query.managerId);
+      const requestUser = req as any;
+      const managerId = requestUser.user?.id ?? String(req.query.managerId ?? '');
       const start = new Date(); start.setUTCHours(0,0,0,0);
       const end = new Date();   end.setUTCHours(23,59,59,999);
 
       const allWorkOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
-      const jobs = allWorkOrders.filter(wo => 
-        wo.homeManagerId === managerId &&
+      const jobs = (allWorkOrders as WorkOrder[]).filter(wo => 
+        String(wo.homeManagerId) === managerId &&
         wo.scheduledStartDate &&
         wo.scheduledStartDate >= start &&
         wo.scheduledStartDate <= end &&
-        (wo.status === 'scheduled' || wo.status === 'in_progress')
-      ).sort((a, b) => (a.scheduledStartDate?.getTime() || 0) - (b.scheduledStartDate?.getTime() || 0));
+        (wo.status === 'in_progress' || wo.status === 'created')
+      ).sort((a: WorkOrder, b: WorkOrder) => (a.scheduledStartDate?.getTime() || 0) - (b.scheduledStartDate?.getTime() || 0));
 
       res.json({
         date: start.toISOString().slice(0,10),
@@ -5248,17 +5852,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/ops/tech/today', isAuthenticated, requireRole(['technician','manager','admin']), async (req: any, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const techId = req.user.id;
+      const techRequest = req as any;
+      const techId = techRequest.user?.id as string;
       const start = new Date(); start.setUTCHours(0,0,0,0);
       const end = new Date();   end.setUTCHours(23,59,59,999);
 
       const allWorkOrders = await schedulingRepos.workOrderStorage.getWorkOrders();
-      const jobs = allWorkOrders.filter(wo => 
-        wo.assignedTechnicianId === techId &&
+      const jobs = (allWorkOrders as Array<Record<string, any>>).filter(wo => 
+        String(wo.assignedTechnicianId ?? wo.contractorId) === techId &&
         wo.scheduledStartDate &&
         wo.scheduledStartDate >= start &&
         wo.scheduledStartDate <= end &&
-        (wo.status === 'scheduled' || wo.status === 'in_progress')
+        (wo.status === 'in_progress' || wo.status === 'created')
       ).sort((a, b) => (a.scheduledStartDate?.getTime() || 0) - (b.scheduledStartDate?.getTime() || 0));
 
       res.json({ date: start.toISOString().slice(0,10), jobs });
@@ -5459,6 +6064,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
+
+
+
+
+
+
 
 
 

@@ -455,7 +455,7 @@ export class SchedulingService {
         entityType: "work_order",
         entityId: request.workOrderId,
         userId: request.overrideBy,
-        userRole: request.adminOverride ? "admin" : "member",
+        userRole: request.adminOverride ? "admin" : "manager",
         newValues: {
           slotId: assignedSlot.id,
           startTime: request.startTime.toISOString(),
@@ -866,7 +866,7 @@ export class SchedulingService {
       const differentLocation =
         serviceRequest.address !== otherSR.address ||
         serviceRequest.city !== otherSR.city ||
-        serviceRequest.zip !== otherSR.zip;
+        serviceRequest.zipCode !== otherSR.zipCode;
 
       if (differentLocation) {
         // naive: require at least travelMinutes between previous end and next start
@@ -1110,3 +1110,5 @@ export class SchedulingService {
 
 // Export singleton instance
 export const schedulingService = new SchedulingService();
+
+

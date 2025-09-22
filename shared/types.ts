@@ -558,6 +558,40 @@ export const ServiceRequestUpdateSchema = ServiceRequestCreateSchema.partial().o
 });
 
 // Work Order Validation Schemas
+// Scheduling Conflict Check Schema
+export const ScheduleConflictCheckSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  startTime: z.string().datetime("Invalid start time format"),
+  endTime: z.string().datetime("Invalid end time format"),
+}).strict().refine(
+  (data) => new Date(data.endTime) > new Date(data.startTime),
+  {
+    message: "End time must be after start time",
+    path: ["endTime"]
+  }
+);
+
+// Member Preferred Dates Schema (max 3 dates)
+export const MemberPreferredDatesSchema = z.array(
+  z.string().datetime("Invalid date format")
+).max(3, "Maximum 3 preferred dates allowed").optional();
+
+// Time Slot Booking Request Schema
+export const SlotBookingRequestSchema = z.object({
+  contractorId: z.string().uuid("Invalid contractor ID"),
+  workOrderId: z.string().min(1, "Work order ID required"),
+  startTime: z.string().datetime("Invalid start time format"),
+  endTime: z.string().datetime("Invalid end time format"),
+  slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).default("standard"),
+  memberPreferredDates: MemberPreferredDatesSchema,
+}).strict().refine(
+  (data) => new Date(data.endTime) > new Date(data.startTime),
+  {
+    message: "End time must be after start time",
+    path: ["endTime"]
+  }
+);
+
 export const WorkOrderCreateSchema = z.object({
   serviceRequestId: z.string().uuid("Invalid service request ID"),
   homeManagerId: z.string().uuid("Invalid home manager ID"),
@@ -585,7 +619,17 @@ export const WorkOrderCreateSchema = z.object({
   attachments: z.array(z.string().regex(urlRegex, "Invalid attachment URL")).optional(),
 }).strict();
 
-export const WorkOrderUpdateSchema = WorkOrderCreateSchema.partial().omit({ serviceRequestId: true, homeManagerId: true });
+export const WorkOrderUpdateSchema = WorkOrderCreateSchema.partial()
+  .omit({ serviceRequestId: true, homeManagerId: true })
+  .extend({
+    slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).optional(),
+    memberPreferredDates: MemberPreferredDatesSchema,
+    hasSchedulingConflicts: z.boolean().optional(),
+    status: z.enum(["created", "in_progress", "completed", "cancelled"]).optional(),
+    conflictOverrideReason: z.string().optional(),
+    conflictOverrideBy: z.string().uuid("Invalid override user ID").optional(),
+    conflictOverrideAt: z.string().optional(),
+  });
 
 // Estimate Validation Schemas
 export const EstimateCreateSchema = z.object({
@@ -935,40 +979,6 @@ export const ContractorAvailabilityRequestSchema = z.object({
   {
     message: "End date must be after start date",
     path: ["endDate"]
-  }
-);
-
-// Scheduling Conflict Check Schema
-export const ScheduleConflictCheckSchema = z.object({
-  contractorId: z.string().uuid("Invalid contractor ID"),
-  startTime: z.string().datetime("Invalid start time format"),
-  endTime: z.string().datetime("Invalid end time format"),
-}).strict().refine(
-  (data) => new Date(data.endTime) > new Date(data.startTime),
-  {
-    message: "End time must be after start time",
-    path: ["endTime"]
-  }
-);
-
-// Member Preferred Dates Schema (max 3 dates)
-export const MemberPreferredDatesSchema = z.array(
-  z.string().datetime("Invalid date format")
-).max(3, "Maximum 3 preferred dates allowed").optional();
-
-// Time Slot Booking Request Schema
-export const SlotBookingRequestSchema = z.object({
-  contractorId: z.string().uuid("Invalid contractor ID"),
-  workOrderId: z.string().min(1, "Work order ID required"),
-  startTime: z.string().datetime("Invalid start time format"),
-  endTime: z.string().datetime("Invalid end time format"),
-  slotType: z.enum(["standard", "emergency", "inspection", "consultation", "followup"]).default("standard"),
-  memberPreferredDates: MemberPreferredDatesSchema,
-}).strict().refine(
-  (data) => new Date(data.endTime) > new Date(data.startTime),
-  {
-    message: "End time must be after start time",
-    path: ["endTime"]
   }
 );
 
