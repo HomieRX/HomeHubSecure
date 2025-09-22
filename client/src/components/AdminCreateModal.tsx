@@ -488,17 +488,31 @@ export default function AdminCreateModal({ isOpen, onClose, entityType, title }:
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => {
-      return fetch(`/api/admin/${entityType}`, {
+    mutationFn: async (data: any) => {
+      // Fetch CSRF token from server and include credentials so session cookie is sent
+      const tokenRes = await fetch('/api/csrf-token', { credentials: 'include' });
+      let csrfToken: string | undefined;
+      if (tokenRes.ok) {
+        try {
+          const json = await tokenRes.json();
+          csrfToken = json?.csrfToken;
+        } catch (e) {
+          // ignore JSON parse errors and continue without token (server may not require it)
+        }
+      }
+
+      const res = await fetch(`/api/admin/${entityType}`, {
         method: "POST",
+        credentials: 'include',
         headers: {
           "Content-Type": "application/json",
+          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
         },
         body: JSON.stringify(data),
-      }).then(res => {
-        if (!res.ok) throw new Error(`Failed to create ${title}`);
-        return res.json();
       });
+
+      if (!res.ok) throw new Error(`Failed to create ${title}`);
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/admin/${entityType}`] });
