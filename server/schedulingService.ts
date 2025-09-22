@@ -1,4 +1,4 @@
-import {
+﻿import {
   format,
   addDays,
   addHours,
@@ -334,7 +334,7 @@ export class SchedulingService {
         severity: "hard",
         conflictingSlots: [],
         conflictingWorkOrders: [],
-        description: `Requested time is outside manager service window ${mgrSettings.serviceWindowStart}–${mgrSettings.serviceWindowEnd}.`,
+        description: `Requested time is outside manager service window ${mgrSettings.serviceWindowStart}â€“${mgrSettings.serviceWindowEnd}.`,
         canOverride: false,
       });
     }
@@ -1110,5 +1110,7 @@ export class SchedulingService {
 
 // Export singleton instance
 export const schedulingService = new SchedulingService();
+
+
 
 

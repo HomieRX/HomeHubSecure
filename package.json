@@ -9,7 +9,8 @@
     "dev": "concurrently -k -n SERVER,CLIENT \"pnpm dev:server\" \"pnpm dev:client\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.17.1",
@@ -122,7 +123,8 @@
     "tailwindcss": "^3.4.17",
     "tsx": "4.7.1",
     "typescript": "5.6.3",
-    "vite": "^5.4.19"
+    "vite": "^5.4.19",
+    "vitest": "^1.6.0"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
