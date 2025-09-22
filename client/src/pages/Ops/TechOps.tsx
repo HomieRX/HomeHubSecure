@@ -1,38 +1,28 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function TechOps() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["ops-tech-today"],
     queryFn: async () => {
-      const r = await fetch("/api/ops/tech/today");
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
+      const response = await apiRequest("GET", "/api/ops/tech/today");
+      return response.json();
     },
   });
 
   const checkIn = useMutation({
     mutationFn: async (id: number) => {
-      const r = await fetch(`/api/work-orders/${id}/check-in`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
+      const response = await apiRequest("POST", `/api/work-orders/${id}/check-in`, {});
+      return response.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ops-tech-today"] }),
   });
 
   const checkOut = useMutation({
     mutationFn: async (id: number) => {
-      const r = await fetch(`/api/work-orders/${id}/check-out`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes: "" }),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
+      const response = await apiRequest("POST", `/api/work-orders/${id}/check-out`, { notes: "" });
+      return response.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ops-tech-today"] }),
   });

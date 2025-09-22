@@ -122,10 +122,18 @@ function getCorsOrigins(): string[] {
 export const corsConfig = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     const allowedOrigins = getCorsOrigins();
-    
+
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
+
+    // In development we expect DEV_ORIGIN exact match
+    if (process.env.NODE_ENV === 'development') {
+      const devOrigin = process.env.DEV_ORIGIN || 'http://localhost:5173';
+      if (origin === devOrigin) return callback(null, true);
+      console.warn(`CORS blocked origin (dev strict): ${origin} != ${devOrigin}`);
+      return callback(new Error('Not allowed by CORS'), false);
+    }
+
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {

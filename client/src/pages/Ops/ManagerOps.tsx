@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function ManagerOps() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["ops-manager-today"],
     queryFn: async () => {
-      const r = await fetch("/api/ops/manager/today");
-      if (!r.ok) throw new Error(await r.text());
-      return r.json();
+      const response = await apiRequest("GET", "/api/ops/manager/today");
+      return response.json();
     },
   });
   if (isLoading) return <div>Loading…</div>;

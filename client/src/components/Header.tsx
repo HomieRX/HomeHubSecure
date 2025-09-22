@@ -17,7 +17,25 @@ export default function Header({ userTier = 'HomeHUB', isAuthenticated = false }
   };
 
   const handleNavClick = (section: string) => {
-    console.log(`Navigating to ${section}`);
+    switch (section) {
+      case 'login':
+        if (typeof window !== 'undefined') {
+          window.location.href = '/api/login';
+        }
+        return;
+      case 'logout':
+        if (typeof window !== 'undefined') {
+          window.location.href = '/api/logout';
+        }
+        return;
+      case 'signup':
+        if (typeof window !== 'undefined') {
+          window.location.href = '/registration';
+        }
+        return;
+      default:
+        console.log(`Navigating to ${section}`);
+    }
   };
 
   const getTierColor = (tier: string) => {

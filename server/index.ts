@@ -8,7 +8,7 @@ import { setupSecurityMiddleware, corsConfig, securityErrorHandler } from "./sec
 // Environment validation schema
 const envSchema = z.object({
   // Database Configuration
-  DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection string"),
+  DATABASE_URL: z.string().url("DATABASE_URL must be a valid PostgreSQL connection string").optional(),
   STORAGE_BACKEND: z.enum(["memory", "database"]).default("memory"),
   
   // Server Configuration  
@@ -86,7 +86,11 @@ const app = express();
 setupSecurityMiddleware(app);
 
 // 2. CORS configuration (after security headers)
-app.use(cors(corsConfig));
+const devOrigin = process.env.DEV_ORIGIN || 'http://localhost:5173';
+app.use(cors({ ...corsConfig, origin: process.env.NODE_ENV === 'production' ? corsConfig.origin : devOrigin } as any));
+
+// Preflight for all routes (explicit origin)
+app.options('*', cors({ ...corsConfig, origin: process.env.NODE_ENV === 'production' ? corsConfig.origin : devOrigin } as any));
 
 // 3. Body parsing middleware (after CORS)
 app.use(express.json());

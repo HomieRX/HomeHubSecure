@@ -30,7 +30,7 @@ import {
   CheckCircle,
   Calendar as CalendarIconLarge
 } from "lucide-react";
-import { queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   MembershipTier,
   ServiceType,
@@ -134,17 +134,12 @@ export default function Services() {
     queryKey: ["/api/services/pricing", selectedService?.type, userMembershipTier, estimatedDuration],
     enabled: !!selectedService && !!userMembershipTier && estimatedDuration > 0,
     queryFn: async () => {
-      const response = await fetch("/api/services/pricing", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          serviceType: selectedService?.type,
-          membershipTier: userMembershipTier,
-          estimatedDuration: estimatedDuration,
-          baseRate: 75
-        }),
+      const response = await apiRequest("POST", "/api/services/pricing", {
+        serviceType: selectedService?.type,
+        membershipTier: userMembershipTier,
+        estimatedDuration,
+        baseRate: 75,
       });
-      if (!response.ok) throw new Error("Failed to fetch pricing");
       return response.json();
     },
     staleTime: 30 * 1000, // Cache for 30 seconds
@@ -162,15 +157,7 @@ export default function Services() {
         memberId: (memberProfile as any).id,
       };
       
-      const response = await fetch("/api/service-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestData),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to book service");
-      }
+      const response = await apiRequest("POST", "/api/service-requests", requestData);
       return response.json();
     },
     onSuccess: (data) => {

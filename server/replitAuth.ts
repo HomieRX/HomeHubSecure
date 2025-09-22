@@ -33,8 +33,9 @@ export function getSession() {
   let sessionStore: session.Store;
   
   const forceMemoryStore = process.env.USE_MEMORY_SESSION === "1";
-  
-  if (!forceMemoryStore && process.env.DATABASE_URL) {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (!forceMemoryStore && process.env.DATABASE_URL && isProd) {
     try {
       const pgStore = connectPg(session);
       sessionStore = new pgStore({
@@ -57,15 +58,18 @@ export function getSession() {
     }
   }
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
   return session({
+    name: process.env.SESSION_COOKIE_NAME || 'hh.sid',
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // Fix dev sessions
-      sameSite: "lax", // CSRF protection
+      secure: isProduction, // secure cookies in production (HTTPS)
+      sameSite: isProduction ? 'lax' : 'none', // none for cross-site dev, lax in prod
       maxAge: sessionTtl,
     },
   });
@@ -203,8 +207,9 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+  // Store the entire minimal user object in session to avoid DB hits on every request
+  passport.serializeUser((user: any, cb) => cb(null, user));
+  passport.deserializeUser((user: any, cb) => cb(null, user));
 
   // Skip Replit Auth setup in development if REPLIT_DOMAINS is not set
   if (!process.env.REPLIT_DOMAINS) {
@@ -234,9 +239,24 @@ export async function setupAuth(app: Express) {
           return res.status(500).json({ error: "Login failed" });
         }
         
-        // Ensure development user exists in database
+        // Ensure development user exists in database and attach DB role to session user
         try {
           await upsertUser(mockUserClaims);
+          const storage = await getStorage();
+          const dbUser = await storage.getUser(mockUserClaims.sub);
+          if (dbUser) {
+            // merge role into session user so middlewares can use it without DB
+            (req.user as any).role = dbUser.role;
+          }
+
+          if (process.env.NODE_ENV === "development") {
+            try {
+              await storage.updateUser(mockUserClaims.sub, { role: "admin" as any });
+              (req.user as any).role = 'admin';
+            } catch (promoteError) {
+              console.warn("Failed to promote development user to admin:", promoteError);
+            }
+          }
         } catch (error) {
           console.error("Error creating development user:", error);
         }
@@ -260,10 +280,23 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
+    try {
+      // Persist claims to DB (upsert) and retrieve DB role
+      await upsertUser(tokens.claims());
+      const storage = await getStorage();
+      const userFromDb = await storage.getUser(String(tokens.claims().sub));
+
+      // Build session user object including tokens and db role
+      const sessionUser: any = {
+        id: userFromDb?.id ?? String(tokens.claims().sub),
+        role: userFromDb?.role ?? 'homeowner',
+      };
+      updateUserSession(sessionUser, tokens);
+
+      verified(null, sessionUser);
+    } catch (err) {
+      verified(err as Error);
+    }
   };
 
   for (const domain of process.env
@@ -309,53 +342,35 @@ export async function setupAuth(app: Express) {
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   const user = req.user as any;
 
-  if (!req.isAuthenticated() || !user?.expires_at || !user?.claims) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
-    return next();
-  }
-
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    return res.status(401).json({ message: "Token expired" });
-  }
-
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    console.error("Token refresh failed:", error);
-    return res.status(401).json({ message: "Authentication failed" });
-  }
+  if (req.isAuthenticated?.() && user) return next();
+  return res.status(401).json({ message: "Unauthorized" });
 };
 
 // Role-based access control middleware
 export const requireRole = (allowedRoles: string[]): RequestHandler => {
   return async (req: any, res, next) => {
     try {
-      const userId = req.user?.claims?.sub;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
+      const sessionUser = req.user as any;
+
+      // Prefer role stored in session to avoid DB hit
+      const role = sessionUser?.role || sessionUser?.claims?.role;
+      if (role && allowedRoles.includes(role)) {
+        req.currentUser = sessionUser;
+        return next();
       }
 
-      const { users } = await getStorageRepositories();
-      const user = await users.getUser(userId);
-      if (!user) {
-        return res.status(401).json({ error: "User not found" });
-      }
+      // Fallback: fetch from DB if not present on session
+      const userId = sessionUser?.id || sessionUser?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const { users } = await getStorageRepositories();
+      const user = await users.getUser(String(userId));
+      if (!user) return res.status(401).json({ error: "User not found" });
 
       if (!allowedRoles.includes(user.role)) {
-        return res.status(403).json({ 
-          error: `Access denied. Required roles: ${allowedRoles.join(", ")}` 
-        });
+        return res.status(403).json({ error: `Access denied. Required roles: ${allowedRoles.join(', ')}` });
       }
 
-      // Attach user info to request for downstream use
       req.currentUser = user;
       next();
     } catch (error) {
@@ -369,20 +384,29 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
 export const requireOwnershipOrAdmin = (resourceUserIdField = 'userId'): RequestHandler => {
   return async (req: any, res, next) => {
     try {
-      const currentUserId = req.user?.claims?.sub;
-      if (!currentUserId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const { users } = await getStorageRepositories();
-      const currentUser = await users.getUser(currentUserId);
-      if (!currentUser) {
-        return res.status(401).json({ error: "User not found" });
-      }
+      const sessionUser = req.user as any;
+      const currentUserId = sessionUser?.id || sessionUser?.claims?.sub;
+      if (!currentUserId) return res.status(401).json({ error: "Authentication required" });
 
       const targetUserId = req.params.id || req.body[resourceUserIdField];
-      
-      // Allow access if user owns the resource or is admin
+
+      // If role present in session, use it
+      const role = sessionUser?.role || sessionUser?.claims?.role;
+      if (role === 'admin') {
+        req.currentUser = sessionUser;
+        return next();
+      }
+
+      if (String(currentUserId) === String(targetUserId)) {
+        req.currentUser = sessionUser;
+        return next();
+      }
+
+      // Fallback: do DB lookup to verify
+      const { users } = await getStorageRepositories();
+      const currentUser = await users.getUser(String(currentUserId));
+      if (!currentUser) return res.status(401).json({ error: "User not found" });
+
       if (currentUser.id !== targetUserId && currentUser.role !== "admin") {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -409,6 +433,11 @@ export const csrfProtection: RequestHandler = (req: any, res, next) => {
 
   // Skip CSRF for GET requests
   if (req.method === 'GET') {
+    return next();
+  }
+
+  // Skip CSRF for known webhook endpoints and the csrf bootstrap endpoint
+  if (req.path.startsWith('/api/webhooks') || req.path === '/api/csrf-token') {
     return next();
   }
 
