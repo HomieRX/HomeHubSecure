@@ -41,7 +41,8 @@ import {
   type Forum,
   type ForumTopic,
   type ForumPost,
-  type ForumPostVote
+  type ForumPostVote,
+  type InsertInvoice
 } from "@shared/schema";
 import { 
   ServiceWorkflowManager, 
@@ -5271,9 +5272,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/work-orders/:id/check-in', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const id = Number(req.params.id);
+      const workOrderId = req.params.id as string;
       const { lat, lng } = req.body as { lat?: number; lng?: number };
-      await schedulingRepos.workOrderStorage.updateWorkOrder(id, {
+      await schedulingRepos.workOrderStorage.updateWorkOrder(workOrderId, {
         checkInAt: new Date(),
         checkInLat: lat,
         checkInLng: lng,
@@ -5286,9 +5287,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/work-orders/:id/check-out', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const id = Number(req.params.id);
+      const workOrderId = req.params.id as string;
       const { notes, beforePhotos, afterPhotos, extraChargesCents, lineItems, memberSignatureUrl } = req.body as any;
-      await schedulingRepos.workOrderStorage.updateWorkOrder(id, {
+      await schedulingRepos.workOrderStorage.updateWorkOrder(workOrderId, {
         checkOutAt: new Date(),
         technicianNotes: notes,
         beforePhotos,
@@ -5305,30 +5306,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/work-orders/:id/complete', isAuthenticated, requireRole(['technician','manager','admin']), async (req, res, next) => {
     try {
       const schedulingRepos = await getSchedulingRepositories();
-      const id = Number(req.params.id);
+      const workOrderId = req.params.id as string;
 
       // mark complete
-      await schedulingRepos.workOrderStorage.updateWorkOrder(id, { status: 'complete' });
+      await schedulingRepos.workOrderStorage.updateWorkOrder(workOrderId, { status: 'completed' });
 
-      // create invoice if missing
-      const invoices = await schedulingRepos.invoiceStorage.getInvoices();
-      let inv = invoices.find(invoice => invoice.workOrderId === id);
-      
-      if (!inv) {
-        inv = await schedulingRepos.invoiceStorage.createInvoice({
-          workOrderId: id,
-          memberId: req.body.memberId, // or derive from work order
-          status: 'sent',
-          totalCents: 0 // recompute below if you store line items elsewhere
-        });
+      const [existingInvoice] = await schedulingRepos.invoiceStorage.getInvoicesByWorkOrder(workOrderId);
+      let invoice = existingInvoice;
+
+      if (!invoice) {
+        const { memberId, subtotal, total, amountDue, tax, dueDate, lineItems, loyaltyPointsUsed, loyaltyPointsEarned, loyaltyPointsValue, paymentMethod, notes, pdfUrl } = req.body as Record<string, unknown>;
+
+        if (!memberId || typeof memberId !== 'string') {
+          return res.status(400).json({ error: 'memberId is required to generate an invoice' });
+        }
+
+        const asDecimal = (value: unknown, fallback: string | number = '0.00') => {
+          const numeric = typeof value === 'number' ? value : Number(value);
+          if (Number.isFinite(numeric)) {
+            return numeric.toFixed(2);
+          }
+          const fallbackNumeric = typeof fallback === 'number' ? fallback : Number(fallback);
+          return Number.isFinite(fallbackNumeric) ? fallbackNumeric.toFixed(2) : '0.00';
+        };
+
+        const asInteger = (value: unknown) => {
+          const numeric = typeof value === 'number' ? value : Number(value);
+          return Number.isFinite(numeric) ? Math.trunc(numeric) : 0;
+        };
+
+        const asDate = (value: unknown) => {
+          if (value instanceof Date) {
+            return new Date(value.getTime());
+          }
+          if (typeof value === 'string' || typeof value === 'number') {
+            const parsed = new Date(value);
+            if (!Number.isNaN(parsed.getTime())) {
+              return parsed;
+            }
+          }
+          return new Date();
+        };
+
+        const normalizedSubtotal = asDecimal(subtotal);
+        const normalizedTotal = asDecimal(total, normalizedSubtotal);
+        const normalizedAmountDue = asDecimal(amountDue, normalizedTotal);
+        const normalizedTax = asDecimal(tax);
+        const normalizedPointsValue = asDecimal(loyaltyPointsValue);
+        const normalizedPointsUsed = Math.max(0, asInteger(loyaltyPointsUsed));
+        const normalizedPointsEarned = Math.max(0, asInteger(loyaltyPointsEarned));
+        const dueDateValue = asDate(dueDate);
+        const items = Array.isArray(lineItems) ? (lineItems as unknown[]) : [];
+
+        const paymentMethodValue = typeof paymentMethod === 'string' ? paymentMethod : undefined;
+        const notesValue = typeof notes === 'string' ? notes : undefined;
+        const pdfUrlValue = typeof pdfUrl === 'string' ? pdfUrl : undefined;
+
+        const invoicePayload = {
+          workOrderId,
+          memberId,
+          subtotal: normalizedSubtotal,
+          tax: normalizedTax,
+          total: normalizedTotal,
+          amountDue: normalizedAmountDue,
+          loyaltyPointsUsed: normalizedPointsUsed,
+          loyaltyPointsValue: normalizedPointsValue,
+          loyaltyPointsEarned: normalizedPointsEarned,
+          dueDate: dueDateValue,
+          lineItems: items,
+          paymentMethod: paymentMethodValue,
+          notes: notesValue,
+          pdfUrl: pdfUrlValue,
+        } satisfies InsertInvoice;
+
+        invoice = await schedulingRepos.invoiceStorage.createInvoice(invoicePayload);
       }
 
-      // PDF generation would be implemented here
-      // For now, just return the invoice without PDF
-      res.json({ 
-        ok: true, 
-        invoiceId: inv.id, 
-        note: 'Invoice created successfully - PDF generation to be implemented' 
+      res.json({
+        ok: true,
+        invoiceId: invoice.id,
+        status: invoice.status,
+        note: 'Invoice ready (PDF generation pending).',
       });
     } catch (err) { next(err); }
   });
@@ -5340,16 +5398,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/admin/manager-settings', isAuthenticated, requireRole(['admin']), async (req, res, next) => {
     try {
       const { homeManagerId, maxDailyJobs, serviceWindowStart, serviceWindowEnd, bufferMinutes } = req.body;
-      
-      // For in-memory storage, create or update manager settings
-      const settings = await (await getStorage()).upsertManagerSettings({
+
+      if (!homeManagerId || typeof homeManagerId !== 'string') {
+        return res.status(400).json({ error: 'homeManagerId is required' });
+      }
+
+      const storage = await getStorage();
+      const parsedMaxJobs = Number(maxDailyJobs);
+      const parsedBuffer = Number(bufferMinutes);
+
+      const settings = await storage.upsertManagerSettings({
         homeManagerId,
-        maxDailyJobs,
-        serviceWindowStart,
-        serviceWindowEnd,
-        bufferMinutes
+        maxDailyJobs: Number.isFinite(parsedMaxJobs) && parsedMaxJobs > 0 ? Math.trunc(parsedMaxJobs) : 0,
+        serviceWindowStart: typeof serviceWindowStart === 'string' ? serviceWindowStart : '08:00',
+        serviceWindowEnd: typeof serviceWindowEnd === 'string' ? serviceWindowEnd : '18:00',
+        bufferMinutes: Number.isFinite(parsedBuffer) && parsedBuffer >= 0 ? Math.trunc(parsedBuffer) : 20,
       });
-      
+
       res.json(settings);
     } catch (err) { next(err); }
   });
@@ -5359,17 +5424,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { users: userStorage } = await getStorageRepositories();
       const { homeManagerId, blockType, startAt, endAt, reason } = req.body;
       const currentUser = await userStorage.getUser(req.user.claims.sub);
-      
+
+      if (!homeManagerId || typeof homeManagerId !== 'string') {
+        return res.status(400).json({ error: 'homeManagerId is required' });
+      }
+
+      const allowedBlockTypes = ['BLACKOUT','TIME_OFF','TRAINING','MAINTENANCE'] as const;
+      const normalizedType = typeof blockType === 'string' ? blockType.toUpperCase() : '';
+      const validBlockType = allowedBlockTypes.find((type) => type === normalizedType);
+      if (!validBlockType) {
+        return res.status(400).json({ error: `blockType must be one of ${allowedBlockTypes.join(', ')}` });
+      }
+
+      const startDate = new Date(startAt);
+      const endDate = new Date(endAt);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || startDate >= endDate) {
+        return res.status(400).json({ error: 'startAt and endAt must be valid ISO date values with startAt < endAt' });
+      }
+
       const storage = await getStorage();
       const block = await storage.createManagerTimeBlock({
         homeManagerId,
-        blockType,
-        startAt: new Date(startAt),
-        endAt: new Date(endAt),
-        reason,
-        createdBy: currentUser?.id || ''
+        blockType: validBlockType,
+        startAt: startDate,
+        endAt: endDate,
+        reason: typeof reason === 'string' && reason.trim() ? reason : undefined,
+        createdBy: currentUser?.id ?? 'system',
       });
-      
+
       res.json(block);
     } catch (err) { next(err); }
   });

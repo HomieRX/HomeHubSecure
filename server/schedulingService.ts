@@ -12,7 +12,7 @@ import {
   differenceInMinutes,
   isSameDay,
 } from "date-fns";
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { utcToZonedTime, zonedTimeToUtc } from "date-fns-tz";
 import {
   type TimeSlot,
   type InsertTimeSlot,
@@ -22,10 +22,10 @@ import {
   type WorkOrder,
   type InsertWorkOrder,
   type ContractorProfile,
-  slotDurationEnum,
-  conflictSeverityEnum,
 } from "@shared/schema";
 import { getStorageRepositories } from "./storage/repositories";
+import { getStorage } from "./storage";
+import type { IStorage } from "./storage";
 
 // ===========================
 // INTERNAL TYPES (non-breaking)
@@ -45,8 +45,12 @@ type ManagerTimeBlock = {
   blockType: "BLACKOUT" | "TIME_OFF" | "TRAINING" | "MAINTENANCE";
   startAt: Date;
   endAt: Date;
-  reason?: string;
+  reason: string | null;
 };
+
+type SlotDuration = InsertTimeSlot["duration"];
+type SlotType = InsertTimeSlot["slotType"];
+type ConflictSeverity = InsertScheduleConflict["conflictType"];
 
 // ===========================
 // SCHEDULING SERVICE TYPES
@@ -57,8 +61,8 @@ export interface AvailabilityRequest {
   startDate: Date;
   endDate: Date;
   timezone: string;
-  slotDuration?: string; // "1_hour", "2_hour", "4_hour", "8_hour"
-  slotType?: string; // "standard", "emergency", "consultation"
+  slotDuration?: SlotDuration; // "1_hour", "2_hour", "4_hour", "8_hour"
+  slotType?: SlotType; // "standard", "emergency", "consultation"
 }
 
 export interface SlotBookingRequest {
@@ -66,7 +70,7 @@ export interface SlotBookingRequest {
   slotId?: string;
   startTime: Date;
   endTime: Date;
-  slotType: string;
+  slotType: SlotType;
   workOrderId: string;
   adminOverride?: boolean;
   overrideReason?: string;
@@ -83,7 +87,7 @@ export interface AdminSlotOverrideRequest {
 }
 
 export interface ConflictDetails {
-  severity: "hard" | "soft" | "travel" | "policy";
+  severity: ConflictSeverity;
   conflictingSlots: TimeSlot[];
   conflictingWorkOrders: WorkOrder[];
   description: string;
@@ -123,9 +127,17 @@ export class SchedulingService {
   // Business rules
   private TURNOVER_BUFFER_MINUTES = 20; // no job within +/- 20 mins
   private TRAVEL_MINUTES = 20; // naive travel pad if different address
+  private cachedStorage: IStorage | null = null;
 
   private async resolveRepositories() {
     return getStorageRepositories();
+  }
+
+  private async coreStorage(): Promise<IStorage> {
+    if (!this.cachedStorage) {
+      this.cachedStorage = await getStorage();
+    }
+    return this.cachedStorage;
   }
 
   private async schedulingStorage() {
@@ -189,21 +201,26 @@ export class SchedulingService {
       request.contractorId,
     );
 
+    const rangeStart = startOfDay(new Date(request.startDate));
+    const rangeEnd = endOfDay(new Date(request.endDate));
+
     // Manager blocks (blackouts, time off)
     const managerBlocks = await this.getManagerTimeBlocks(
       managerId,
-      request.startDate,
-      request.endDate,
+      rangeStart,
+      rangeEnd,
     );
 
     const availableSlots: InsertTimeSlot[] = [];
     const slotDuration = this.getSlotDurationMinutes(
-      request.slotDuration || "2_hour",
+      request.slotDuration ?? "2_hour",
     );
+    const slotType: SlotType = request.slotType ?? "standard";
+    const timezone = workingHours.timezone ?? request.timezone ?? this.defaultTimezone;
 
     // Generate slots for each day in the range
-    let currentDate = new Date(request.startDate);
-    while (currentDate <= request.endDate) {
+    let currentDate = rangeStart;
+    while (currentDate <= rangeEnd) {
       // Capacity gate: if day already at or over capacity, skip generating slots for the day
       const capacityReached = await this.isDailyCapacityReached(
         managerId,
@@ -217,8 +234,8 @@ export class SchedulingService {
           slotDuration,
           mgrSettings.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES,
           request.contractorId,
-          request.slotType || "standard",
-          request.timezone,
+          slotType,
+          timezone,
           managerBlocks,
         );
 
@@ -314,7 +331,7 @@ export class SchedulingService {
     );
     if (outside) {
       conflicts.push({
-        severity: "policy",
+        severity: "hard",
         conflictingSlots: [],
         conflictingWorkOrders: [],
         description: `Requested time is outside manager service window ${mgrSettings.serviceWindowStart}–${mgrSettings.serviceWindowEnd}.`,
@@ -330,7 +347,7 @@ export class SchedulingService {
     );
     if (blocked) {
       conflicts.push({
-        severity: "policy",
+        severity: "hard",
         conflictingSlots: [],
         conflictingWorkOrders: [],
         description: `Requested time falls inside a manager blackout/time-off block.`,
@@ -346,7 +363,7 @@ export class SchedulingService {
     );
     if (capacityReached) {
       conflicts.push({
-        severity: "policy",
+        severity: "soft",
         conflictingSlots: [],
         conflictingWorkOrders: [],
         description: `Daily capacity reached for ${format(request.startTime, "yyyy-MM-dd")}.`,
@@ -378,11 +395,8 @@ export class SchedulingService {
     const storage = await this.schedulingStorage();
     const conflicts = await this.detectConflicts(request);
 
-    // Reject on hard/policy conflicts unless admin override
-    const blocking = conflicts.filter(
-      (c) =>
-        c.severity === "hard" || (c.severity === "policy" && !c.canOverride),
-    );
+    // Reject on non-overridable conflicts unless admin override
+    const blocking = conflicts.filter((c) => !c.canOverride);
     if (blocking.length > 0 && !request.adminOverride) {
       const alternatives = await this.generateAlternativeSlots(request);
       return { success: false, conflicts: blocking, alternatives };
@@ -404,7 +418,7 @@ export class SchedulingService {
           slotDate: request.startTime,
           startTime: request.startTime,
           endTime: request.endTime,
-          slotType: request.slotType as any,
+          slotType: request.slotType,
           duration: this.getDurationFromMinutes(
             (request.endTime.getTime() - request.startTime.getTime()) / 60000,
           ),
@@ -418,7 +432,7 @@ export class SchedulingService {
         assignedSlotId: assignedSlot.id,
         scheduledStartDate: request.startTime,
         scheduledEndDate: request.endTime,
-        slotType: request.slotType as any,
+        slotType: request.slotType,
         scheduledDuration:
           (request.endTime.getTime() - request.startTime.getTime()) / 60000,
         hasSchedulingConflicts: conflicts.length > 0,
@@ -517,7 +531,7 @@ export class SchedulingService {
   async matchPreferredDates(
     contractorId: string,
     preferredDates: { date: string; time?: string }[],
-    slotDuration: string = "2_hour",
+    slotDuration: SlotDuration = "2_hour",
     timezone: string = this.defaultTimezone,
   ): Promise<{ preference: number; slots: TimeSlot[] }[]> {
     const matchedSlots: { preference: number; slots: TimeSlot[] }[] = [];
@@ -614,7 +628,7 @@ export class SchedulingService {
     slotDurationMinutes: number,
     bufferMinutes: number,
     contractorId: string,
-    slotType: string,
+    slotType: SlotType,
     timezone: string,
     managerBlocks: ManagerTimeBlock[],
   ): InsertTimeSlot[] {
@@ -627,54 +641,45 @@ export class SchedulingService {
     const dayHours = workingHours[dayOfWeek];
     if (!dayHours) return slots; // Not working this day
 
-    const [startHour, startMin] = dayHours.start.split(":").map(Number);
-    const [endHour, endMin] = dayHours.end.split(":").map(Number);
+    const tz = workingHours.timezone ?? timezone ?? this.defaultTimezone;
+    const dayStart = this.composeDateTime(date, dayHours.start, tz);
+    const dayEnd = this.composeDateTime(date, dayHours.end, tz);
+    const slotDate = zonedTimeToUtc(`${format(utcToZonedTime(date, tz), 'yyyy-MM-dd')}T00:00:00`, tz);
 
-    const startTime = new Date(date);
-    startTime.setHours(startHour, startMin, 0, 0);
-    const endTime = new Date(date);
-    endTime.setHours(endHour, endMin, 0, 0);
-
-    // Optional lunch/break blocks
     const breaks =
       workingHours.breaks?.map((b) => ({
-        start: this.composeDateTime(date, b.start),
-        end: this.composeDateTime(date, b.end),
+        start: this.composeDateTime(date, b.start, tz),
+        end: this.composeDateTime(date, b.end, tz),
       })) || [];
 
-    let currentSlotStart = new Date(startTime);
+    let currentSlotStart = new Date(dayStart);
 
     while (
       currentSlotStart.getTime() + slotDurationMinutes * 60 * 1000 <=
-      endTime.getTime()
+      dayEnd.getTime()
     ) {
       const currentSlotEnd = new Date(
         currentSlotStart.getTime() + slotDurationMinutes * 60 * 1000,
       );
 
-      // Skip if slot overlaps any break
       const overlapsBreak = breaks.some((br) =>
         this.timesOverlap(currentSlotStart, currentSlotEnd, br.start, br.end),
       );
       if (overlapsBreak) {
-        currentSlotStart = new Date(
-          this.bumpPastBlock(currentSlotStart, breaks),
-        );
+        currentSlotStart = this.bumpPastBlock(currentSlotStart, breaks);
         continue;
       }
 
-      // Skip if slot overlaps manager blackout/time-off
       const overlapsBlock = managerBlocks.some((b) =>
         this.timesOverlap(currentSlotStart, currentSlotEnd, b.startAt, b.endAt),
       );
       if (!overlapsBlock) {
-        // Push slot, but step forward by duration + turnover buffer to avoid back-to-back slots
         slots.push({
           contractorId,
-          slotDate: new Date(date),
+          slotDate: new Date(slotDate),
           startTime: new Date(currentSlotStart),
           endTime: new Date(currentSlotEnd),
-          slotType: slotType as any,
+          slotType,
           duration: this.getDurationFromMinutes(slotDurationMinutes),
           isAvailable: true,
           isRecurring: false,
@@ -685,6 +690,19 @@ export class SchedulingService {
     }
 
     return slots;
+  }
+
+  private bumpPastBlock(
+    current: Date,
+    blocks: Array<{ start: Date; end: Date }>,
+  ): Date {
+    let candidate = new Date(current);
+    for (const block of blocks) {
+      if (current >= block.start && current < block.end && block.end > candidate) {
+        candidate = new Date(block.end);
+      }
+    }
+    return candidate;
   }
 
   private filterConflictingSlots(
@@ -743,7 +761,7 @@ export class SchedulingService {
     return durationMap[duration] || 120;
   }
 
-  private getDurationFromMinutes(minutes: number): string {
+  private getDurationFromMinutes(minutes: number): SlotDuration {
     if (minutes <= 60) return "1_hour";
     if (minutes <= 120) return "2_hour";
     if (minutes <= 240) return "4_hour";
@@ -985,36 +1003,30 @@ export class SchedulingService {
   private async resolveManagerIdForContractor(
     contractor?: ContractorProfile | null,
   ): Promise<string> {
-    if (contractor?.homeManagerId) return String(contractor.homeManagerId);
-    if ((storage as any).getHomeManagerForContractor) {
-      const mgr = await (storage as any).getHomeManagerForContractor(
-        contractor?.id,
-      );
-      if (mgr?.id) return String(mgr.id);
+    if (!contractor) return "";
+    if ((contractor as any).homeManagerId) {
+      return String((contractor as any).homeManagerId);
     }
-    // fallback to contractor as manager
-    return String(contractor?.id || "");
+    if ((contractor as any).managerId) {
+      return String((contractor as any).managerId);
+    }
+    return String(contractor.userId ?? contractor.id ?? "");
   }
 
   private async getManagerSettings(
     homeManagerId: string,
   ): Promise<ManagerSettings> {
-    // Try storage-backed settings
-    if ((storage as any).getManagerSettings) {
-      const s = await (storage as any).getManagerSettings(homeManagerId);
-      if (s) {
-        return {
-          homeManagerId: String(homeManagerId),
-          maxDailyJobs: Number(s.maxDailyJobs ?? 8),
-          serviceWindowStart: String(s.serviceWindowStart ?? "08:00"),
-          serviceWindowEnd: String(s.serviceWindowEnd ?? "18:00"),
-          bufferMinutes: Number(
-            s.bufferMinutes ?? this.TURNOVER_BUFFER_MINUTES,
-          ),
-        };
-      }
+    const storage = await this.coreStorage();
+    const stored = await storage.getManagerSettings(homeManagerId);
+    if (stored) {
+      return {
+        homeManagerId: stored.homeManagerId,
+        maxDailyJobs: stored.maxDailyJobs,
+        serviceWindowStart: stored.serviceWindowStart,
+        serviceWindowEnd: stored.serviceWindowEnd,
+        bufferMinutes: stored.bufferMinutes,
+      };
     }
-    // Defaults
     return {
       homeManagerId: String(homeManagerId),
       maxDailyJobs: 8,
@@ -1029,21 +1041,28 @@ export class SchedulingService {
     start: Date,
     end: Date,
   ): Promise<ManagerTimeBlock[]> {
-    if ((storage as any).getManagerTimeBlocks) {
-      return await (storage as any).getManagerTimeBlocks(
-        homeManagerId,
-        start,
-        end,
-      );
-    }
-    return [];
+    const storage = await this.coreStorage();
+    const blocks = await storage.getManagerTimeBlocks(homeManagerId);
+    return blocks
+      .filter((block) => block.endAt >= start && block.startAt <= end)
+      .map((block) => ({
+        id: block.id,
+        homeManagerId: block.homeManagerId,
+        blockType: block.blockType,
+        startAt: block.startAt,
+        endAt: block.endAt,
+        reason: block.reason ?? null,
+      }));
   }
 
-  private composeDateTime(date: Date, hhmm: string): Date {
-    const [h, m] = hhmm.split(":").map(Number);
-    const d = new Date(date);
-    d.setHours(h, m, 0, 0);
-    return d;
+  private composeDateTime(
+    date: Date,
+    hhmm: string,
+    timezone = this.defaultTimezone,
+  ): Date {
+    const zonedDay = utcToZonedTime(date, timezone);
+    const dayString = format(zonedDay, 'yyyy-MM-dd');
+    return zonedTimeToUtc(`${dayString}T${hhmm}:00`, timezone);
   }
 
   private async isOutsideServiceWindow(
@@ -1077,29 +1096,15 @@ export class SchedulingService {
     day: Date,
     mgr: ManagerSettings,
   ): Promise<boolean> {
-    // Prefer a fast count method if provided
-    if ((storage as any).countWorkOrdersForManagerOnDay) {
-      const count = await (storage as any).countWorkOrdersForManagerOnDay(
-        homeManagerId,
-        startOfDay(day),
-      );
-      return Number(count) >= (mgr.maxDailyJobs ?? 8);
-    }
-
-    // Fallback: pull a day range and count
-    const dayStart = startOfDay(day);
-    const dayEnd = endOfDay(day);
-    if ((storage as any).getWorkOrdersForManagerByDateRange) {
-      const list = await (storage as any).getWorkOrdersForManagerByDateRange(
-        homeManagerId,
-        dayStart,
-        dayEnd,
-      );
-      return (list?.length || 0) >= (mgr.maxDailyJobs ?? 8);
-    }
-
-    // Absolute fallback: cannot verify, assume not reached
-    return false;
+    const repos = await this.resolveRepositories();
+    const managerOrders = await repos.workOrders.getWorkOrdersByManager(
+      homeManagerId,
+    );
+    const count = managerOrders.filter((order) => {
+      if (!order.scheduledStartDate) return false;
+      return isSameDay(new Date(order.scheduledStartDate), day);
+    }).length;
+    return count >= (mgr.maxDailyJobs ?? 8);
   }
 }
 

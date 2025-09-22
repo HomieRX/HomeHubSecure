@@ -106,8 +106,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-06-30"),
     bondingProvider: "Liberty Mutual Bonds",
     bondingAmount: "10000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-01-15"),
     bio: "Experienced handyman with over 10 years serving Austin area. Specializing in general home repairs, furniture assembly, and minor electrical work. Licensed, insured, and bonded for your peace of mind.",
     specialties: ["Handyman", "Basic Electrical"],
     certifications: ["EPA RRP Certified", "OSHA 10-Hour Safety"],
@@ -116,8 +114,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/rodriguez-kitchen-repair.jpg",
       "/images/contractors/rodriguez-deck-rebuild.jpg"
     ],
-    rating: "4.8",
-    reviewCount: 127,
     isActive: true,
     availability: {
       monday: { available: true, start: "08:00", end: "17:00" },
@@ -150,8 +146,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-08-15"),
     bondingProvider: "Travelers Bond",
     bondingAmount: "25000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-02-01"),
     bio: "Master electrician with 15+ years experience. Specializing in residential electrical installations, repairs, and smart home integrations. Available for emergency calls 24/7.",
     specialties: ["Basic Electrical"],
     certifications: ["Texas Master Electrician", "Smart Home Certified", "Arc Fault Specialist"],
@@ -160,8 +154,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/chen-panel-upgrade.jpg",
       "/images/contractors/chen-smart-switches.jpg"
     ],
-    rating: "4.9",
-    reviewCount: 89,
     isActive: true,
     availability: {
       monday: { available: true, start: "07:00", end: "18:00" },
@@ -194,8 +186,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-11-20"),
     bondingProvider: "Hartford Bonds",
     bondingAmount: "20000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-01-20"),
     bio: "Third-generation plumber serving the Houston area for over 12 years. Expert in residential plumbing repairs, installations, and emergency services. No job too big or small!",
     specialties: ["Basic Plumbing", "Water Heater"],
     certifications: ["Texas Master Plumber", "Backflow Prevention", "Gas Line Certified"],
@@ -204,8 +194,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/thompson-bathroom-renovation.jpg",
       "/images/contractors/thompson-water-heater.jpg"
     ],
-    rating: "4.7",
-    reviewCount: 156,
     isActive: true,
     availability: {
       monday: { available: true, start: "06:00", end: "17:00" },
@@ -238,8 +226,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-05-15"),
     bondingProvider: "Nationwide Bonds",
     bondingAmount: "15000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-02-10"),
     bio: "Certified appliance repair specialist with expertise in all major brands. 8 years of experience fixing dishwashers, ovens, refrigerators, and laundry equipment. Same-day service available.",
     specialties: ["Dishwasher", "Oven", "Microwave", "Refrigerator", "Clothes Washer", "Clothes Dryer"],
     certifications: ["EPA Section 608", "Whirlpool Certified", "Samsung Authorized", "LG Certified"],
@@ -248,8 +234,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/garcia-dishwasher-repair.jpg",
       "/images/contractors/garcia-refrigerator-fix.jpg"
     ],
-    rating: "4.9",
-    reviewCount: 203,
     isActive: true,
     availability: {
       monday: { available: true, start: "08:00", end: "18:00" },
@@ -282,8 +266,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-12-01"),
     bondingProvider: "American Guarantee",
     bondingAmount: "18000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-03-01"),
     bio: "Irrigation specialist with 14 years experience designing and maintaining sprinkler systems. Expert in water conservation, smart controllers, and landscape lighting integration.",
     specialties: ["Basic Irrigation"],
     certifications: ["Irrigation Association Certified", "Hunter Pro Certified", "Rain Bird Select Contractor", "Smart Controller Specialist"],
@@ -292,8 +274,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/johnson-sprinkler-install.jpg", 
       "/images/contractors/johnson-drip-system.jpg"
     ],
-    rating: "4.6",
-    reviewCount: 78,
     isActive: true,
     availability: {
       monday: { available: true, start: "07:00", end: "16:00" },
@@ -326,8 +306,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-09-30"),
     bondingProvider: "Zurich Bonds",
     bondingAmount: "22000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-01-25"),
     bio: "Kitchen renovation specialist with 11 years experience. Expert in sink disposals, dishwashers, and complete kitchen remodeling. Certified in multiple appliance brands and plumbing.",
     specialties: ["Sink Disposal", "Dishwasher", "Basic Plumbing"],
     certifications: ["Kitchen & Bath Certified", "InSinkErator Certified", "Moen Pro", "Delta Certified"],
@@ -336,8 +314,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/williams-kitchen-remodel.jpg",
       "/images/contractors/williams-disposal-install.jpg"
     ],
-    rating: "4.8",
-    reviewCount: 134,
     isActive: true,
     availability: {
       monday: { available: true, start: "08:00", end: "17:00" },
@@ -370,8 +346,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-10-15"),
     bondingProvider: "CNA Surety",
     bondingAmount: "30000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-02-15"),
     bio: "Licensed HVAC contractor with 18 years experience. Specializing in residential heating, cooling, and air quality systems. Available for emergency repairs and routine maintenance.",
     specialties: ["Water Heater", "Basic Electrical"],
     certifications: ["EPA Universal", "NATE Certified", "Carrier Factory Authorized", "Trane Comfort Specialist"],
@@ -380,8 +354,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/brown-hvac-install.jpg",
       "/images/contractors/brown-ductwork.jpg"
     ],
-    rating: "4.9",
-    reviewCount: 167,
     isActive: true,
     availability: {
       monday: { available: true, start: "07:00", end: "18:00" },
@@ -414,8 +386,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
     insuranceExpiryDate: new Date("2025-07-31"),
     bondingProvider: "Liberty Bonds",
     bondingAmount: "25000.00",
-    isVerified: true,
-    verifiedAt: new Date("2024-03-10"),
     bio: "Multi-skilled contractor offering comprehensive home services. 13 years experience in handyman work, basic electrical, plumbing, and appliance repair. One-stop solution for all home needs.",
     specialties: ["Handyman", "Basic Electrical", "Basic Plumbing", "Microwave", "Refrigerator"],
     certifications: ["Multi-Trade Certified", "Electrical Safety", "Plumbing Basics", "Appliance Repair Certified"],
@@ -424,8 +394,6 @@ export const contractorProfilesData: InsertContractorProfile[] = [
       "/images/contractors/davis-bathroom-repair.jpg",
       "/images/contractors/davis-electrical-work.jpg"
     ],
-    rating: "4.7",
-    reviewCount: 98,
     isActive: true,
     availability: {
       monday: { available: true, start: "08:00", end: "17:00" },
@@ -549,10 +517,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/texas-hardware-interior.jpg"
     ],
     logoUrl: "/images/merchants/texas-hardware-logo.jpg",
-    rating: "4.6",
-    reviewCount: 342,
-    isVerified: true,
-    verifiedAt: new Date("2024-01-10"),
     isActive: true
   },
   {
@@ -587,10 +551,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/garden-center-plants.jpg"
     ],
     logoUrl: "/images/merchants/garden-center-logo.jpg",
-    rating: "4.8",
-    reviewCount: 189,
-    isVerified: true,
-    verifiedAt: new Date("2024-01-15"),
     isActive: true
   },
   {
@@ -625,10 +585,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/electronics-smart-home.jpg"
     ],
     logoUrl: "/images/merchants/electronics-emporium-logo.jpg",
-    rating: "4.7",
-    reviewCount: 267,
-    isVerified: true,
-    verifiedAt: new Date("2024-02-01"),
     isActive: true
   },
   {
@@ -663,10 +619,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/kitchen-world-displays.jpg"
     ],
     logoUrl: "/images/merchants/kitchen-world-logo.jpg",
-    rating: "4.9",
-    reviewCount: 156,
-    isVerified: true,
-    verifiedAt: new Date("2024-02-10"),
     isActive: true
   },
   {
@@ -701,10 +653,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/pro-tool-display.jpg"
     ],
     logoUrl: "/images/merchants/pro-tool-logo.jpg",
-    rating: "4.5",
-    reviewCount: 423,
-    isVerified: true,
-    verifiedAt: new Date("2024-01-20"),
     isActive: true
   },
   {
@@ -739,10 +687,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/furniture-living-room.jpg"
     ],
     logoUrl: "/images/merchants/furniture-design-logo.jpg",
-    rating: "4.8",
-    reviewCount: 134,
-    isVerified: true,
-    verifiedAt: new Date("2024-02-20"),
     isActive: true
   },
   {
@@ -777,10 +721,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/appliance-service.jpg"
     ],
     logoUrl: "/images/merchants/appliance-central-logo.jpg",
-    rating: "4.6",
-    reviewCount: 298,
-    isVerified: true,
-    verifiedAt: new Date("2024-01-30"),
     isActive: true
   },
   {
@@ -815,10 +755,6 @@ export const merchantProfilesData: InsertMerchantProfile[] = [
       "/images/merchants/home-services-supplies.jpg"
     ],
     logoUrl: "/images/merchants/home-services-logo.jpg",
-    rating: "4.7",
-    reviewCount: 167,
-    isVerified: true,
-    verifiedAt: new Date("2024-03-01"),
     isActive: true
   }
 ];
@@ -838,7 +774,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: false,
     membershipRequired: "HomePRO",
     maxUses: 500,
-    currentUses: 0,
     tags: ["tools", "rental", "professional", "equipment"],
     termsAndConditions: "Valid on tool rentals over $25. Cannot be combined with other offers. Membership verification required. Valid ID required for tool rental.",
     images: ["/images/deals/tool-rental-deal.jpg"],
@@ -857,7 +792,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: true,
     membershipRequired: "HomeHERO",
     maxUses: 200,
-    currentUses: 0,
     tags: ["appliances", "installation", "kitchen", "professional-service"],
     termsAndConditions: "Valid with purchase of major kitchen appliance over $500. Installation must be scheduled within 30 days of purchase. Excludes built-in appliances requiring electrical/plumbing modifications.",
     images: ["/images/deals/appliance-install-deal.jpg"],
@@ -876,7 +810,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: false,
     membershipRequired: "HomeHUB",
     maxUses: 300,
-    currentUses: 0,
     tags: ["garden", "plants", "tools", "seasonal", "bogo"],
     termsAndConditions: "Buy one get one free on items of equal or lesser value. Valid on garden tools, fertilizers, and plant care products. Does not apply to live plants, bulk mulch, or heavy equipment.",
     images: ["/images/deals/garden-bogo-deal.jpg"],
@@ -895,7 +828,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: false,
     membershipRequired: null,
     maxUses: 1000,
-    currentUses: 0,
     tags: ["electronics", "shipping", "smart-home", "no-minimum"],
     termsAndConditions: "Free standard shipping (5-7 business days) on orders over $100. Expedited shipping available for additional fee. Does not apply to oversized items or white glove delivery.",
     images: ["/images/deals/electronics-shipping-deal.jpg"],
@@ -914,7 +846,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: true,
     membershipRequired: "HomeGURU",
     maxUses: 100,
-    currentUses: 0,
     tags: ["cleaning", "professional-service", "home-maintenance", "premium"],
     termsAndConditions: "Valid for first-time customers only. Minimum 3-hour service required. Does not include specialty cleaning (carpets, windows). HomeGURU membership verification required.",
     images: ["/images/deals/cleaning-service-deal.jpg"],
@@ -933,7 +864,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: false,
     membershipRequired: "HomePRO",
     maxUses: 250,
-    currentUses: 0,
     tags: ["furniture", "assembly", "handyman", "time-saver"],
     termsAndConditions: "Valid for furniture assembly jobs estimated at 2+ hours. Does not include wall mounting or electrical connections. Some assembly restrictions may apply for complex items.",
     images: ["/images/deals/furniture-assembly-deal.jpg"],
@@ -952,7 +882,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: false,
     membershipRequired: "HomeHERO", 
     maxUses: 400,
-    currentUses: 0,
     tags: ["plumbing", "hardware", "supplies", "bulk-savings"],
     termsAndConditions: "Buy 2 get 1 free on items of equal or lesser value. Valid on faucets, pipes, fittings, and plumbing accessories. Does not apply to water heaters or major fixtures.",
     images: ["/images/deals/plumbing-bogo-deal.jpg"],
@@ -971,7 +900,6 @@ export const dealsData: Omit<InsertDeal, "merchantId">[] = [
     isExclusive: true,
     membershipRequired: "HomeGURU",
     maxUses: 150,
-    currentUses: 0,
     tags: ["appliances", "delivery", "white-glove", "premium-service"],
     termsAndConditions: "Free white glove delivery on appliance orders over $750. Includes basic setup and removal of old appliance. Electrical/plumbing connections available for additional fee. Delivery scheduling required.",
     images: ["/images/deals/appliance-delivery-deal.jpg"],
